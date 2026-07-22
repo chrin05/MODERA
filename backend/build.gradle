@@ -71,6 +71,7 @@ tasks.named('test') {
 def querydslSrcDir  = layout.buildDirectory.dir("generated/querydsl").get().asFile
 
 tasks.withType(JavaCompile).configureEach {
+    options.compilerArgs.add('-parameters')
     options.getGeneratedSourceOutputDirectory().set(file(querydslSrcDir))
 }
 

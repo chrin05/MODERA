@@ -2,8 +2,8 @@ package com.ssafy.modera.global.config;
 
 import com.ssafy.modera.global.security.filter.JwtAuthenticationFilter;
 import com.ssafy.modera.global.security.filter.SecurityAuditLogger;
-import lombok.RequiredArgsConstructor;
 import org.springframework.boot.security.autoconfigure.web.servlet.PathRequest;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.Customizer;
@@ -21,12 +21,23 @@ import org.springframework.web.cors.CorsConfigurationSource;
 @Configuration
 @EnableWebSecurity
 @EnableMethodSecurity
-@RequiredArgsConstructor
 public class SecurityConfig {
     private final CorsConfigurationSource corsConfigurationSource;
     private final SecurityExceptionConfig securityExceptionConfig;
     private final SecurityAuditLogger securityAuditLogger;
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
+
+    public SecurityConfig(
+            @Qualifier("corsConfigurationSource") CorsConfigurationSource corsConfigurationSource,
+            SecurityExceptionConfig securityExceptionConfig,
+            SecurityAuditLogger securityAuditLogger,
+            JwtAuthenticationFilter jwtAuthenticationFilter
+    ) {
+        this.corsConfigurationSource = corsConfigurationSource;
+        this.securityExceptionConfig = securityExceptionConfig;
+        this.securityAuditLogger = securityAuditLogger;
+        this.jwtAuthenticationFilter = jwtAuthenticationFilter;
+    }
 
     private static final String[] PUBLIC_URLS = {
             "/",

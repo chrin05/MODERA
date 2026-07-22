@@ -1,0 +1,92 @@
+# modera 로컬 개발 인프라 (PostgreSQL + Redis + MinIO)
+#
+# 사용법:
+#   1) cp .env.example .env  → 값 채우기 (로컬용이라 약한 비번 OK)
+#   2) docker compose up -d --build
+#   3) (다른 터미널) cd .. && ./gradlew bootRun
+#
+# 서버 ~/infra 와의 차이:
+#   - nginx, certbot 제거 (로컬 개발 불필요)
+#   - 포트를 127.0.0.1 바인딩이 아니라 그대로 노출 (로컬 앱이 붙어야 하므로)
+#   - MinIO 버킷 자동 생성 (minio-init) — 서버는 수동 생성이었음
+#   - shared-web 외부 네트워크 제거
+#
+# 주의: 이 파일은 "로컬 개발용"이다. 서버 배포에는 ~/infra 를 쓴다.
+
+services:
+  postgres:
+    build: .                     # pgvector:pg16 + pg_bigm (현재 디렉터리의 Dockerfile)
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-modera}
+      POSTGRES_USER: ${POSTGRES_USER:-admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-localdev}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./01-extensions.sql:/docker-entrypoint-initdb.d/01-extensions.sql:ro
+    ports:
+      - "5432:5432"              # 로컬 앱이 localhost:5432 로 붙음
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-admin} -d ${POSTGRES_DB:-modera}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    shm_size: 256mb
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    volumes:
+      - miniodata:/data
+    ports:
+      - "9000:9000"              # S3 API
+      - "19001:9001"             # 로컬 콘솔 (9001은 기존 SSH 터널이 사용 중)
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9000/minio/health/live || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # 버킷 자동 생성 후 종료되는 일회성 컨테이너.
+  # 서버 ~/infra 엔 없던 것 — 팀원이 compose up 한 번으로 버킷까지 준비되게 함.
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 $${MINIO_ROOT_USER} $${MINIO_ROOT_PASSWORD} &&
+      mc mb --ignore-existing local/pictures &&
+      mc mb --ignore-existing local/thumbnails &&
+      mc mb --ignore-existing local/modera &&
+      echo '=== buckets ready: pictures, thumbnails, modera ===' &&
+      exit 0
+      "
+    restart: "no"
+
+volumes:
+  pgdata:
+  redisdata:
+  miniodata:
