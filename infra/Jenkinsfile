@@ -33,22 +33,34 @@ pipeline {
         stage('AI Deploy') {
             when { changeset "ai/**" }
             steps {
+                echo 'Sync compose file from this repo (repo가 단일 진실 공급원)'
+                sh 'cp ai/ai_main/docker-compose.yml /home/ubuntu/app/AI/docker-compose.yml'
                 echo 'Sync .env from Jenkins credential'
                 withCredentials([file(credentialsId: 'ai-server-dotenv', variable: 'AI_DOTENV')]) {
                     sh 'cp "$AI_DOTENV" /home/ubuntu/app/AI/.env'
                 }
                 echo 'Recreate AI Server container with new image'
                 sh '''
+                    set -e
                     cd /home/ubuntu/app/AI
                     echo "=== AI Container Deploy Start ==="
-                    # opensearch는 그대로 두고 ai-service 컨테이너만 재생성
-                    docker compose up -d --force-recreate ai-service 2>&1
-                    echo "=== compose up exit code: $? ==="
+                    # opensearch 는 없으면 띄우고, 이미 떠 있으면 건드리지 않는다(데이터/기동시간 보호).
+                    docker compose up -d opensearch
+                    # --no-deps 가 없으면 --force-recreate 가 opensearch 까지 재생성한다.
+                    docker compose up -d --force-recreate --no-deps ai-service
                 '''
-                echo 'Wait for AI Server startup'
-                sh 'sleep 5'
                 echo 'AI Server Health check'
-                sh 'curl -f http://localhost:8000/docs || true'
+                // /docs 는 앱이 반쯤 죽어도 뜬다. 실제 상태는 /health 로 본다.
+                sh '''
+                    cd /home/ubuntu/app/AI
+                    for i in $(seq 1 30); do
+                        curl -fsS http://localhost:8000/health && exit 0
+                        sleep 2
+                    done
+                    echo "health check failed; recent logs:"
+                    docker compose logs --tail=50 ai-service
+                    exit 1
+                '''
             }
         }
     }
