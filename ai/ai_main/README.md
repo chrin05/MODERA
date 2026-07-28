@@ -145,7 +145,7 @@ OCR 이 비었거나 정보성이 없다고 판정되면 분석을 건너뛰고 
 | 10-2 | POST | `/internal/v1/embed` | 동기 |
 | 10-3 | POST | `/internal/v1/query/parse` | 동기. 실패 시 `parsedConditions: null` 로 degrade |
 | — | POST | `/internal/v1/search` | 동기. OpenSearch 키워드(BM25) 검색. `userId` 로 격리 |
-| — | POST | `/internal/v1/documents` | 동기. Spring 이 보낸 분석 결과 여러 건 → 마크다운 문서 |
+| — | POST | `/internal/v1/documents` | 동기. Spring 이 보낸 분석 결과 여러 건 → 모바일 HTML 문서 |
 | — | GET | `/health` | 헬스체크 (토큰 불필요) |
 
 FastAPI 가 호출하는 쪽: 10-4 콜백, 10-5 지식 후보 조회.
@@ -159,7 +159,7 @@ Spring 이 아직 안 떠 있으면 `SPRING_ENABLED=false` 로 두세요.
 
 > 전체 필드·에러 코드·Spring 연동 유의사항은 **[docs/DOCUMENT_API.md](docs/DOCUMENT_API.md)** 에 명세서 형식으로 정리했다. 아래는 요약이다.
 
-분석이 끝난 이미지 여러 장을 묶어 하나의 마크다운 문서로 만듭니다.
+분석이 끝난 이미지 여러 장을 묶어 하나의 **모바일용 HTML 문서**로 만듭니다.
 분석 파이프라인과 별개 기능입니다 — 새 단계를 추가하지 않습니다.
 
 **재료는 Spring 이 요청 본문에 실어 보냅니다(10-1 과 같은 방식).** AI 는 색인·저장소를
@@ -205,7 +205,7 @@ Spring → AI   POST /internal/v1/documents
 
   ① prepare_sources    중복·빈 항목 정리 (조회 없음)
   ② generate_document  Gemini 1회 호출 — 3장이 한 프롬프트에 → {title, summary, sections[]}
-  ③ render_markdown    파이썬이 마크다운으로 렌더 (모델이 아님)
+  ③ render_html        파이썬이 모바일 HTML 로 렌더 (모델이 아님)
 
             ← {
   "title": "C++ 입문서 구매 후보 비교",
@@ -216,7 +216,7 @@ Spring → AI   POST /internal/v1/documents
                   "교보문고 32,000원 (10% 할인)"],
       "imageIds": [103, 102, 101] }        // ← 한 섹션이 세 장을 근거로 삼는다
   ],
-  "markdown": "# C++ 입문서 구매 후보 비교\n\n...",
+  "html": "<!DOCTYPE html>...</html>",
   "sourceImageIds": [101, 102, 103],
   "skipped": [],
   "modelVersion": "gemini-3.5-flash",
@@ -224,8 +224,8 @@ Spring → AI   POST /internal/v1/documents
 }
 ```
 
-- **`markdown` 이 최종 산출물입니다.** `sections` 는 Spring/앱이 직접 재조립하고 싶을 때 쓰는 원자료입니다.
-- 마크다운을 모델에게 시키지 않고 구조(JSON)만 받아 서버가 렌더합니다. 출력 모양이 항상 같고 코드펜스·잡문이 섞이지 않습니다.
+- **`html` 이 최종 산출물입니다.** self-contained 단일 문서라 WebView 에 그대로 load 하면 됩니다. 외부 폰트·CSS·스크립트를 안 씁니다. `sections` 는 앱이 직접 재조립하고 싶을 때 쓰는 원자료입니다.
+- HTML 을 모델에게 시키지 않고 구조(JSON)만 받아 서버가 렌더합니다. **이미지 종류와 무관하게 레이아웃·서식이 항상 같고**, 모델 출력·OCR 은 전부 이스케이프되어 스크립트 주입 경로가 생기지 않습니다. 다크 모드 대응 포함.
 - `title`·`summary`·`keyInformation`·`ocr` 이 **전부 빈** 항목은 `skipped: NO_CONTENT` 로 빠집니다(빈 블록을 넣으면 모델이 지어냅니다). 한 장도 못 쓰면 `NO_DOCUMENT_SOURCE`(400).
 - 한 번에 **최대 30장**(`document.MAX_IMAGES`), 이미지당 OCR **1500자**까지 프롬프트에 넣습니다. OCR 은 자르지 말고 전체를 보내면 AI 가 자릅니다. 30장 초과는 400.
 - `ocr` 은 `refinedText` 가 있으면 그쪽을, 없으면 `rawText` 를 씁니다(분석 단계와 같은 규칙).
@@ -245,7 +245,7 @@ AI 가 만드는 것은 위 `/internal/v1/documents` 하나뿐입니다. 나머�
 | 앱용 API | `POST /api/v1/documents` 등. 앱에서 `imageIds` 를 받아 처리 |
 | DB 조회 | 그 imageIds 중 **해당 userId 소유 + `status=COMPLETED`** 만 골라 위 8개 필드로 변환 |
 | AI 호출 | `/internal/v1/documents` 를 **1회** 호출 (장당 호출 아님) |
-| 저장 | `document`(documentId PK, userId, title, markdown, modelVersion, generatedAt) + `document_image`(documentId, imageId, sortOrder) N:M |
+| 저장 | `document`(documentId PK, userId, title, html, modelVersion, generatedAt) + `document_image`(documentId, imageId, sortOrder) N:M |
 | 조회 API | 문서 목록·상세 |
 
 AI 가 Spring 을 조회하지 않으므로 **Spring 에 새 내부 조회 API 는 필요 없습니다.**
@@ -315,7 +315,7 @@ app/
   spring_client.py  10-4 콜백 / 10-5 후보 조회
   category.py       카테고리 유사도 판정 (이름 임베딩 캐시 포함)
   stages.py         LLM / IMAGE_ANALYSIS / AGENT 단계 실행 + 썸네일 + 검색 색인
-  document.py       Spring 이 보낸 분석 결과 묶어 마크다운 문서 생성 (파이프라인과 별개)
+  document.py       Spring 이 보낸 분석 결과 묶어 모바일 HTML 문서 생성 (파이프라인과 별개)
   search.py         OpenSearch 키워드 검색 (nori 색인/조회)
   jobs.py           jobId+stage 멱등 처리 / 앱 직결 작업 상태
   responses.py      앱 API 공통 envelope·페이지 형식

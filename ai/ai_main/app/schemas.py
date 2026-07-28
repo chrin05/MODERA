@@ -195,7 +195,7 @@ class KnowledgeCandidates(CamelModel):
     categories: list[CategoryCandidate] = []
 
 
-# ── 문서화 (분석 완료 이미지 → 마크다운 문서) ─────────────────────────────
+# ── 문서화 (분석 완료 이미지 → 모바일 HTML 문서) ──────────────────────────
 # 10-1 과 같은 방식이다: Spring 이 필요한 데이터를 전부 실어 보내고 AI 는 조회하지
 # 않는다. AI 쪽 색인·저장소에 의존하지 않으므로 OpenSearch 가 죽어도 동작하고,
 # Spring 은 자기 DB 에서 뽑은 값만 넘기면 된다.
@@ -298,8 +298,9 @@ class DocumentResponse(CamelModel):
     title: str
     summary: str = ""
     sections: list[DocumentSection] = []
-    # 위 구조를 그대로 렌더링한 마크다운. Spring 은 보통 이 필드만 쓰면 된다.
-    markdown: str
+    # 위 구조를 렌더링한 모바일용 HTML 문서(self-contained). WebView 에 그대로 load
+    # 하면 된다. 레이아웃·서식은 내용과 무관하게 항상 같다. 보통 이 필드만 쓰면 된다.
+    html: str
     source_image_ids: list[int] = []
     skipped: list[SkippedImage] = []
     model_version: str

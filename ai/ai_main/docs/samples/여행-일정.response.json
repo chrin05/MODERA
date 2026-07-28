@@ -1,13 +1,13 @@
 {
   "title": "제주 3일 여행 준비",
-  "summary": "제주 3일 여행을 위한 예약 확정 내역과 방문 후보지 정보를 일정 순서에 따라 정리했습니다.",
+  "summary": "제주 3일 여행을 위한 예약 확정 내역과 여행 후보지 정보입니다.",
   "sections": [
     {
       "heading": "예약 확정 항목",
-      "body": "항공편과 숙소는 예약을 완료했습니다.",
+      "body": "항공편과 숙소 예약이 완료되었습니다.",
       "bullets": [
-        "제주항공 7C101: 김포 출발 2026-08-03 07:30, 제주 도착 08:40, 예약번호 A1B2C3, 결제금액 89,000원",
-        "서귀포 오션뷰 호텔: 2026-08-03 - 08-05 2박, 디럭스 트윈, 예약번호 HT-9931, 결제금액 320,000원"
+        "제주항공 예약완료 7C101 김포(GMP) 07:30 → 제주(CJU) 08:40 예약번호 A1B2C3 결제금액 89,000원",
+        "서귀포 오션뷰 호텔 2026.08.03 - 08.05 2박 디럭스 트윈 320,000원 HT-9931"
       ],
       "imageIds": [
         201,
@@ -15,14 +15,12 @@
       ]
     },
     {
-      "heading": "예약 후보 항목",
-      "body": "렌터카 견적 비교 및 관광지 정보입니다.",
+      "heading": "예약 후보 및 일정 준비",
+      "body": "렌터카 견적 비교 및 방문 후보 맛집과 관광지 정보입니다.",
       "bullets": [
-        "롯데렌터카: 3일 132,000원 (보험 별도)",
-        "SK렌터카: 3일 118,000원 (보험 별도)",
-        "제주렌트카: 3일 99,000원 (보험 별도)",
-        "성산일출봉: 관람시간 07:00-20:00, 성인 5,000원, 청소년 2,500원, 서귀포시 성산읍",
-        "제주 흑돼지 맛집 BEST3: 돈사돈 노형동 웨이팅 1시간, 흑돈가 연동, 숯불이야기 서귀포 중문"
+        "제주 렌터카 견적 아반떼 3일 롯데 132,000 SK 118,000 제주렌트카 99,000 보험 별도",
+        "제주 흑돼지 맛집 BEST3 1. 돈사돈 노형동 웨이팅 1시간 2. 흑돈가 연동 3. 숯불이야기 서귀포 중문",
+        "성산일출봉 관람요금 성인 5,000원 청소년 2,500원 관람시간 07:00-20:00 서귀포시 성산읍"
       ],
       "imageIds": [
         203,
@@ -31,7 +29,7 @@
       ]
     }
   ],
-  "markdown": "# 제주 3일 여행 준비\n\n제주 3일 여행을 위한 예약 확정 내역과 방문 후보지 정보를 일정 순서에 따라 정리했습니다.\n\n## 예약 확정 항목\n\n항공편과 숙소는 예약을 완료했습니다.\n\n- 제주항공 7C101: 김포 출발 2026-08-03 07:30, 제주 도착 08:40, 예약번호 A1B2C3, 결제금액 89,000원\n- 서귀포 오션뷰 호텔: 2026-08-03 - 08-05 2박, 디럭스 트윈, 예약번호 HT-9931, 결제금액 320,000원\n\n> 출처: #201, #202\n\n## 예약 후보 항목\n\n렌터카 견적 비교 및 관광지 정보입니다.\n\n- 롯데렌터카: 3일 132,000원 (보험 별도)\n- SK렌터카: 3일 118,000원 (보험 별도)\n- 제주렌트카: 3일 99,000원 (보험 별도)\n- 성산일출봉: 관람시간 07:00-20:00, 성인 5,000원, 청소년 2,500원, 서귀포시 성산읍\n- 제주 흑돼지 맛집 BEST3: 돈사돈 노형동 웨이팅 1시간, 흑돈가 연동, 숯불이야기 서귀포 중문\n\n> 출처: #203, #204, #205\n\n---\n\n## 출처\n\n| 이미지 | 제목 | 카테고리 | 저장 시각 |\n| --- | --- | --- | --- |\n| #201 | 제주항공 GMP-CJU 예약 확정 | 예약 | 2026-07-20T02:10:00.000Z |\n| #202 | 서귀포 호텔 예약 확정 | 예약 | 2026-07-20T02:15:00.000Z |\n| #203 | 제주 흑돼지 맛집 리스트 | 음식 | 2026-07-21T11:00:00.000Z |\n| #204 | 성산일출봉 입장료 안내 | 여행 | 2026-07-21T11:05:00.000Z |\n| #205 | 렌터카 견적 비교 | 여행 | 2026-07-22T08:30:00.000Z |\n",
+  "html": "<!DOCTYPE html>\n<html lang=\"ko\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1,viewport-fit=cover\">\n<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'\">\n<title>제주 3일 여행 준비</title>\n<style>:root{\ncolor-scheme:light dark;\n--bg:#fff;--surface:#f7f8fa;--line:#e4e7ec;--line-soft:#edeff3;\n--text:#16181d;--muted:#6b7280;--accent:#2f6fed;--accent-soft:#eaf0fe;\n--radius:14px}\n@media(prefers-color-scheme:dark){:root{\n--bg:#0f1115;--surface:#171a21;--line:#272b34;--line-soft:#1f232b;\n--text:#e7e9ee;--muted:#98a0ac;--accent:#7ba5ff;--accent-soft:#1b2436}}\n*,*::before,*::after{box-sizing:border-box}\nhtml{-webkit-text-size-adjust:100%}\nbody{margin:0;\npadding:clamp(22px,6vw,40px) clamp(16px,4.5vw,24px) 56px;\npadding-left:max(clamp(16px,4.5vw,24px),env(safe-area-inset-left));\npadding-right:max(clamp(16px,4.5vw,24px),env(safe-area-inset-right));\nfont-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",Roboto,\n\"Apple SD Gothic Neo\",\"Noto Sans KR\",\"Malgun Gothic\",sans-serif;\nfont-size:16px;line-height:1.75;color:var(--text);background:var(--bg);\nword-break:keep-all;overflow-wrap:anywhere}\n.doc{max-width:680px;margin:0 auto}\n.doc-head{margin-bottom:clamp(20px,5vw,28px)}\n.doc-head h1{margin:0;font-weight:700;letter-spacing:-.02em;line-height:1.3;\nfont-size:clamp(1.45rem,5.5vw,1.9rem)}\n.doc-summary{margin:12px 0 0;color:var(--muted);font-size:.95rem;line-height:1.7}\n.sec{margin-top:clamp(14px,3.5vw,20px);padding:clamp(16px,4.5vw,22px);\nbackground:var(--surface);border:1px solid var(--line-soft);border-radius:var(--radius)}\n.sec h2{margin:0 0 12px;font-size:1.05rem;font-weight:700;line-height:1.45;\nletter-spacing:-.01em;display:flex;align-items:center;gap:9px}\n.sec h2::before{content:\"\";flex:none;width:3px;height:1.05em;\nborder-radius:2px;background:var(--accent)}\n.sec-body{margin:0}\n.sec-body+.sec-list{margin-top:12px}\n.sec-list{margin:0;padding:0;list-style:none}\n.sec-list li{position:relative;margin-top:9px;padding-left:17px}\n.sec-list li:first-child{margin-top:0}\n.sec-list li::before{content:\"\";position:absolute;left:3px;top:.74em;\nwidth:5px;height:5px;border-radius:50%;background:var(--accent);opacity:.75}\n.sec-src{margin:16px 0 0;display:flex;flex-wrap:wrap;gap:6px;align-items:center}\n.sec-src-label{font-size:.75rem;color:var(--muted)}\n.ref{font-size:.75rem;line-height:1.7;padding:1px 9px;border-radius:999px;\nbackground:var(--accent-soft);color:var(--accent);font-variant-numeric:tabular-nums}\n.doc-src{margin-top:clamp(30px,7vw,44px)}\n.doc-src h2{margin:0 0 10px;font-size:.75rem;font-weight:600;letter-spacing:.08em;\ntext-transform:uppercase;color:var(--muted)}\n.src-list{list-style:none;margin:0;padding:0;border-top:1px solid var(--line)}\n.src-item{display:flex;gap:12px;align-items:flex-start;\npadding:12px 2px;border-bottom:1px solid var(--line-soft)}\n.src-item:last-child{border-bottom:0}\n.src-id{flex:none;min-width:40px;padding:1px 7px;border-radius:7px;text-align:center;\nbackground:var(--surface);border:1px solid var(--line-soft);\nfont-size:.72rem;line-height:1.7;color:var(--muted);font-variant-numeric:tabular-nums}\n.src-body{flex:1;min-width:0}\n.src-title{display:block;font-size:.9rem;line-height:1.55}\n.src-meta{display:block;margin-top:1px;font-size:.76rem;color:var(--muted)}</style>\n</head>\n<body>\n<article class=\"doc\">\n<header class=\"doc-head\">\n<h1>제주 3일 여행 준비</h1>\n<p class=\"doc-summary\">제주 3일 여행을 위한 예약 확정 내역과 여행 후보지 정보입니다.</p>\n</header>\n<section class=\"sec\">\n<h2>예약 확정 항목</h2>\n<p class=\"sec-body\">항공편과 숙소 예약이 완료되었습니다.</p>\n<ul class=\"sec-list\">\n<li>제주항공 예약완료 7C101 김포(GMP) 07:30 → 제주(CJU) 08:40 예약번호 A1B2C3 결제금액 89,000원</li>\n<li>서귀포 오션뷰 호텔 2026.08.03 - 08.05 2박 디럭스 트윈 320,000원 HT-9931</li>\n</ul>\n<p class=\"sec-src\"><span class=\"sec-src-label\">출처</span><span class=\"ref\">#201</span><span class=\"ref\">#202</span></p>\n</section>\n<section class=\"sec\">\n<h2>예약 후보 및 일정 준비</h2>\n<p class=\"sec-body\">렌터카 견적 비교 및 방문 후보 맛집과 관광지 정보입니다.</p>\n<ul class=\"sec-list\">\n<li>제주 렌터카 견적 아반떼 3일 롯데 132,000 SK 118,000 제주렌트카 99,000 보험 별도</li>\n<li>제주 흑돼지 맛집 BEST3 1. 돈사돈 노형동 웨이팅 1시간 2. 흑돈가 연동 3. 숯불이야기 서귀포 중문</li>\n<li>성산일출봉 관람요금 성인 5,000원 청소년 2,500원 관람시간 07:00-20:00 서귀포시 성산읍</li>\n</ul>\n<p class=\"sec-src\"><span class=\"sec-src-label\">출처</span><span class=\"ref\">#203</span><span class=\"ref\">#204</span><span class=\"ref\">#205</span></p>\n</section>\n<footer class=\"doc-src\">\n<h2>출처</h2>\n<ul class=\"src-list\">\n<li class=\"src-item\">\n<span class=\"src-id\">#201</span>\n<span class=\"src-body\">\n<span class=\"src-title\">제주항공 GMP-CJU 예약 확정</span>\n<span class=\"src-meta\">예약 · 2026-07-20</span>\n</span>\n</li>\n<li class=\"src-item\">\n<span class=\"src-id\">#202</span>\n<span class=\"src-body\">\n<span class=\"src-title\">서귀포 호텔 예약 확정</span>\n<span class=\"src-meta\">예약 · 2026-07-20</span>\n</span>\n</li>\n<li class=\"src-item\">\n<span class=\"src-id\">#203</span>\n<span class=\"src-body\">\n<span class=\"src-title\">제주 흑돼지 맛집 리스트</span>\n<span class=\"src-meta\">음식 · 2026-07-21</span>\n</span>\n</li>\n<li class=\"src-item\">\n<span class=\"src-id\">#204</span>\n<span class=\"src-body\">\n<span class=\"src-title\">성산일출봉 입장료 안내</span>\n<span class=\"src-meta\">여행 · 2026-07-21</span>\n</span>\n</li>\n<li class=\"src-item\">\n<span class=\"src-id\">#205</span>\n<span class=\"src-body\">\n<span class=\"src-title\">렌터카 견적 비교</span>\n<span class=\"src-meta\">여행 · 2026-07-22</span>\n</span>\n</li>\n</ul>\n</footer>\n</article>\n</body>\n</html>\n",
   "sourceImageIds": [
     201,
     202,
@@ -41,5 +39,5 @@
   ],
   "skipped": [],
   "modelVersion": "gemini-3.5-flash-lite",
-  "generatedAt": "2026-07-28T05:39:19.106Z"
+  "generatedAt": "2026-07-28T06:28:46.021Z"
 }

@@ -376,13 +376,13 @@ async def keyword_search(request: SearchRequest):
     return JSONResponse(status_code=200, content=response.model_dump(by_alias=True))
 
 
-# ── 문서화 (분석 완료 이미지 → 마크다운) ─────────────────────────────────
+# ── 문서화 (분석 완료 이미지 → 모바일 HTML) ──────────────────────────────
 @app.post("/internal/v1/documents", dependencies=[Depends(require_internal_token)],
           response_model=DocumentResponse,
           responses={400: {"description": "INVALID_REQUEST / NO_DOCUMENT_SOURCE"},
                      502: {"description": "DOCUMENT_GENERATION_FAILED"}})
 async def create_document(request: DocumentRequest):
-    """분석이 끝난 이미지들을 묶어 하나의 마크다운 문서로 만든다.
+    """분석이 끝난 이미지들을 묶어 하나의 모바일용 HTML 문서로 만든다.
 
     분석 파이프라인과 무관한 별개 기능이다. 새로 분석하지 않는다.
 
@@ -390,8 +390,9 @@ async def create_document(request: DocumentRequest):
     AI 는 아무것도 조회하지 않는다. 어떤 이미지가 이 사용자 것이고 분석이
     끝났는지는 Spring 이 질의 단계에서 이미 거른 상태여야 한다.
 
-    응답의 `markdown` 이 최종 산출물이다. Spring 은 이 문자열을 그대로 저장하거나
-    앱에 내려보내면 된다.
+    응답의 `html` 이 최종 산출물이다. 외부 리소스를 참조하지 않는 self-contained
+    문서라 Spring 은 그대로 저장하거나 앱에 내려보내 WebView 에 load 하면 된다.
+    레이아웃·서식은 이미지 종류와 무관하게 항상 같다.
     """
     import asyncio
 

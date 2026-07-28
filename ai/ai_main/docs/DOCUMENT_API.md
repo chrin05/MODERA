@@ -102,7 +102,7 @@
       "imageIds": [102, 101]
     }
   ],
-  "markdown": "# C++ 입문서 구매 후보 비교\n\n같은 책을 두 곳에서 …",
+  "html": "<!DOCTYPE html>\n<html lang=\"ko\">…</html>\n",
   "sourceImageIds": [101, 102],
   "skipped": [],
   "modelVersion": "gemini-3.5-flash",
@@ -115,7 +115,7 @@
 | title | String | 문서 제목. 요청의 `title`이 있으면 그 값 |
 | summary | String | 문서 전체 요약 |
 | sections | Array | 문서 구조 원자료. 앱·Spring이 직접 재조립할 때 쓴다 |
-| markdown | String | **최종 산출물.** 위 구조를 렌더링한 마크다운 전문 |
+| html | String | **최종 산출물.** 위 구조를 렌더링한 모바일용 HTML 문서 전문(self-contained) |
 | sourceImageIds | Number[] | 문서 재료로 쓴 imageId (= 요청 − `skipped`). 출처 표에 그대로 실린다. 모델이 어떤 이미지를 어느 섹션에도 인용하지 않아도 여기에는 남는다 |
 | skipped | Array | 재료에서 빠진 항목 |
 | modelVersion | String | 사용한 LLM 모델명 |
@@ -125,9 +125,9 @@
 
 | 필드 | 타입 | 설명 |
 | --- | --- | --- |
-| heading | String | 섹션 제목 (마크다운 `##`) |
+| heading | String | 섹션 제목 (`<h2>`) |
 | body | String | 서술 본문. 빈 문자열일 수 있다 |
-| bullets | String[] | 나열 항목 (마크다운 `-`). 빈 배열일 수 있다 |
+| bullets | String[] | 나열 항목 (`<ul><li>`). 빈 배열일 수 있다 |
 | imageIds | Number[] | 이 섹션의 근거 이미지. **요청에 실제로 있던 id만 남는다** |
 
 **skipped[]**
@@ -140,32 +140,88 @@
 > 응답에 `imageId` 단수 필드는 **없다.** N장이 문서 1개로 합쳐지므로 출처는
 > `sourceImageIds`와 섹션별 `imageIds`로만 표시한다.
 
-`markdown` 필드의 출력 형태:
+#### `html` 필드의 구조
 
-```markdown
-# {title}
+self-contained 단일 HTML 문서다. 외부 폰트·CSS·스크립트를 참조하지 않으므로
+WebView 에 그대로 load 하면 된다(오프라인·CSP 환경에서도 렌더된다).
 
-{summary}
+```html
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none';
+      style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
+<title>{title}</title>
+<style>…모바일 스타일. 항상 동일…</style>
+</head>
+<body>
+<article class="doc">
+  <header class="doc-head">
+    <h1>{title}</h1>
+    <p class="doc-summary">{summary}</p>
+  </header>
 
-## {heading}
+  <section class="sec">                      <!-- sections[] 만큼 반복. 카드 -->
+    <h2>{heading}</h2>
+    <p class="sec-body">{body}</p>
+    <ul class="sec-list"><li>{bullet}</li></ul>
+    <p class="sec-src">
+      <span class="sec-src-label">출처</span>
+      <span class="ref">#102</span><span class="ref">#101</span>
+    </p>
+  </section>
 
-{body}
-
-- {bullet}
-
-> 출처: #102, #101
-
----
-
-## 출처
-
-| 이미지 | 제목 | 카테고리 | 저장 시각 |
-| --- | --- | --- | --- |
-| #101 | 교보문고 C++ 프로그래밍 입문 | 쇼핑 | 2026-07-16T06:00:00.000Z |
+  <footer class="doc-src">                   <!-- 출처. 항상 마지막 -->
+    <h2>출처</h2>
+    <ul class="src-list">
+      <li class="src-item">
+        <span class="src-id">#101</span>
+        <span class="src-body">
+          <span class="src-title">교보문고 C++ 프로그래밍 입문</span>
+          <span class="src-meta">쇼핑 · 2026-07-16</span>
+        </span>
+      </li>
+    </ul>
+  </footer>
+</article>
+</body>
+</html>
 ```
 
-출처 표는 사용자가 원본 스크린샷을 되찾을 수 있도록 항상 마지막에 붙는다.
-셀 안의 `|`는 `\|`로 escape된다.
+#### 스크립트 차단
+
+**두 겹으로 막는다.**
+
+1. **이스케이프** — 모델 출력·OCR·제목이 전부 `html.escape(quote=True)` 를 거친다.
+   태그로 해석되지 않는다. `href`·`src` 같은 URL 속성과 `on*` 이벤트 핸들러 속성은
+   **애초에 생성하지 않으므로** 스킴이 해석될 자리가 없다.
+2. **CSP** — `default-src 'none'` 이라 script·fetch·iframe·외부 폰트·이미지가 전부 차단된다.
+   인라인 `<style>` 하나만 허용한다. 1번이 새더라도 실행되지 않는다.
+
+회귀 검사는 `test_no_script_can_ever_execute` — 제목·요약·본문·항목·출처에 각각
+`<script>`·`<svg onload>`·`<iframe src=javascript:>`·`</style>` 를 넣고, 출력을 **파싱해서**
+실행 가능한 태그·속성이 하나도 만들어지지 않는지 확인한다.
+
+#### 레이아웃 규칙
+
+**이미지 종류와 무관하게 항상 같다.** 카테고리·장수·섹션 수에 따라 스타일이 갈리는
+분기가 없다. 쇼핑 문서든 여행 문서든 `<style>` 블록과 태그 구조가 동일하다.
+
+| 규칙 | 내용 |
+| --- | --- |
+| 반응형 | 여백·제목 크기가 `clamp()` 로 화면폭에 따라 늘어난다. 본문은 `max-width:680px` 로 묶어 태블릿·데스크톱에서 한 줄이 과하게 길어지지 않게 한다 |
+| 노치 대응 | `viewport-fit=cover` + `env(safe-area-inset-*)`. 좌우가 노치·둥근 모서리에 안 잘린다 |
+| 한글 줄바꿈 | `word-break:keep-all` 로 단어 중간에서 안 끊는다. 긴 URL·예약번호만 `overflow-wrap:anywhere` 로 강제 개행 |
+| 섹션 | 카드(배경·테두리·라운드). 제목 왼쪽에 accent 바, 목록 항목은 accent 점 |
+| 출처 칩 | `.ref` 는 알약형 칩. 섹션 끝(`.sec-src`)과 문서 끝(`.doc-src`) 두 곳에 표기 |
+| 출처 목록 | 표가 아니라 세로 목록. 좁은 화면에서 4열 표는 가로 스크롤이 생긴다 |
+| 빈 값 | `summary`·`body`·`bullets`·`imageIds` 가 비면 해당 요소를 **생략**한다 |
+| 날짜 | `createdAt` 은 날짜까지만 표시(`2026-07-16`). 전체 타임스탬프는 줄을 넘긴다 |
+| 다크 모드 | `prefers-color-scheme: dark`. CSS 변수만 교체된다. 요청 파라미터 없음 |
+| 폰트 | 시스템 폰트 스택(한글 우선). 본문 16px — iOS 자동 확대 방지 |
+| `lang` | 항상 `ko` 고정. 요청의 `language` 는 본문 언어에만 반영된다 |
 
 ### 에러
 
@@ -194,7 +250,8 @@
 | 쓸 수 있는 항목이 하나도 없음 | 400 `NO_DOCUMENT_SOURCE` |
 | `ocr` 텍스트가 1500자 초과 | 앞 1500자만 사용. **Spring이 미리 자르지 말 것** |
 | 모델이 요청에 없는 `imageId`를 출처로 반환 | 해당 id 제거. 거짓 근거가 문서에 남지 않게 한다 |
-| 모델 응답의 제목·항목에 줄바꿈 포함 | 공백으로 치환. 마크다운 구조가 깨지지 않게 한다 |
+| 모델 응답의 제목·항목에 줄바꿈 포함 | 공백으로 치환 |
+| 모델 응답·OCR 에 HTML 태그 포함 | 전부 이스케이프 + CSP `default-src 'none'`. 스크립트가 실행될 수 없다 |
 
 상한값 — `MAX_IMAGES = 30`(요청당 이미지 수), `OCR_CHARS = 1500`(이미지당 OCR 길이).
 둘 다 `app/document.py` 상수이며 프롬프트 크기 = 지연·비용과 직결된다. 실측 후 조정한다.
@@ -224,7 +281,7 @@
 | 앱용 API | `POST /api/v1/documents` 등. 앱에서 `imageIds`를 받는다 |
 | DB 조회 | 소유자·분석 완료 필터 후 Request Body 형태로 변환 |
 | FastAPI 호출 | 이 API를 **1회** 호출(장당 호출 아님) |
-| 저장 | `document`(documentId PK, userId, title, markdown, modelVersion, generatedAt)<br>`document_image`(documentId, imageId, sortOrder) — N:M. `documentId` 채번은 Spring 몫 |
+| 저장 | `document`(documentId PK, userId, title, html, modelVersion, generatedAt)<br>`document_image`(documentId, imageId, sortOrder) — N:M. `documentId` 채번은 Spring 몫 |
 | 조회 API | 문서 목록·상세 |
 
 **응답 시간.** Gemini 호출 1회라 이미지 수에 비례해 늘지는 않지만 프롬프트가 커지면
@@ -241,7 +298,7 @@
 
 ---
 
-실제 출력 샘플: [`samples/`](samples/) — 이 API 를 호출해 받은 마크다운·응답 JSON
+실제 출력 샘플: [`samples/`](samples/) — 이 API 를 호출해 받은 HTML·응답 JSON
 
 구현: [`app/document.py`](../app/document.py) · 엔드포인트 [`app/main.py`](../app/main.py) ·
 자체 점검 `python test/test_document.py` · Swagger `/docs` 의 Example Value 에 실행 가능한 예시 포함
