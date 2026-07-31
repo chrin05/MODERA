@@ -15,15 +15,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.DateTimeException;
-import java.time.LocalDate;
-import java.time.LocalDateTime;
-import java.time.LocalTime;
 import java.time.OffsetDateTime;
-import java.time.ZoneId;
 import java.time.ZoneOffset;
-import java.time.format.DateTimeFormatter;
-import java.time.format.DateTimeParseException;
 
 /**
  * 분석 완료 결과의 scheduleData로 일정 후보(schedule + user_schedule + image_schedule +
@@ -34,10 +27,6 @@ import java.time.format.DateTimeParseException;
 @RequiredArgsConstructor
 public class ScheduleCreationService {
 
-    /** AI가 일정 시각을 한국 로컬 시각(예: "18:00")으로 추출하므로 이 시간대로 해석해 저장한다. */
-    private static final ZoneId KOREA_ZONE = ZoneId.of("Asia/Seoul");
-    /** "9:30"처럼 시(hour)가 한 자리로 와도 받는다. */
-    private static final DateTimeFormatter TIME_FORMAT = DateTimeFormatter.ofPattern("H:mm[:ss]");
     private static final String TYPE_SCHEDULE = "schedule";
     private static final int TITLE_MAX_LENGTH = 100;
 
@@ -70,8 +59,10 @@ public class ScheduleCreationService {
         }
 
         JsonNode fields = parseFields(imageId, structuredFieldsJson);
-        OffsetDateTime startAt = toDateTime(fields, "startYear", "startMonth", "startDay", "startTime");
-        OffsetDateTime endAt = toDateTime(fields, "endYear", "endMonth", "endDay", "endTime");
+        OffsetDateTime startAt = ScheduleTimeParser.toDateTime(
+                fields, "startYear", "startMonth", "startDay", "startTime");
+        OffsetDateTime endAt = ScheduleTimeParser.toDateTime(
+                fields, "endYear", "endMonth", "endDay", "endTime");
         if (startAt != null && endAt != null && endAt.isBefore(startAt)) {
             // schedule 테이블의 CHECK(end_at >= start_at)를 지키기 위해 종료 시각을 버린다.
             log.warn("일정 종료가 시작보다 빨라 종료 시각을 무시한다: imageId={} start={} end={}",
@@ -114,58 +105,6 @@ public class ScheduleCreationService {
             return objectMapper.readTree(structuredFieldsJson);
         } catch (JsonProcessingException exception) {
             log.warn("일정 fields JSON 파싱 실패 — 날짜 없는 후보로 생성: imageId={}", imageId, exception);
-            return null;
-        }
-    }
-
-    private OffsetDateTime toDateTime(
-            JsonNode fields, String yearKey, String monthKey, String dayKey, String timeKey) {
-        if (fields == null) {
-            return null;
-        }
-        Integer year = asInteger(fields.get(yearKey));
-        Integer month = asInteger(fields.get(monthKey));
-        Integer day = asInteger(fields.get(dayKey));
-        if (year == null || month == null || day == null) {
-            return null;
-        }
-        LocalTime time = asTime(fields.get(timeKey));
-        try {
-            return LocalDateTime.of(
-                            LocalDate.of(year, month, day),
-                            time == null ? LocalTime.MIDNIGHT : time)
-                    .atZone(KOREA_ZONE)
-                    .toOffsetDateTime();
-        } catch (DateTimeException exception) {
-            log.warn("유효하지 않은 일정 날짜라 무시: {}-{}-{}", year, month, day);
-            return null;
-        }
-    }
-
-    private Integer asInteger(JsonNode node) {
-        if (node == null || node.isNull()) {
-            return null;
-        }
-        if (node.canConvertToInt()) {
-            return node.asInt();
-        }
-        if (node.isTextual()) {
-            try {
-                return Integer.parseInt(node.asText().trim());
-            } catch (NumberFormatException exception) {
-                return null;
-            }
-        }
-        return null;
-    }
-
-    private LocalTime asTime(JsonNode node) {
-        if (node == null || !node.isTextual() || node.asText().isBlank()) {
-            return null;
-        }
-        try {
-            return LocalTime.parse(node.asText().trim(), TIME_FORMAT);
-        } catch (DateTimeParseException exception) {
             return null;
         }
     }

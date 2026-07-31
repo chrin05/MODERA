@@ -671,16 +671,10 @@ GET /api/v1/images?keyword=C%2B%2B&page=0&size=20
     "category" : "집",
     "tags" : [ "C++", "쇼핑"],
     "keyInformation" : ["가격: 32,000원", "판매처: 교보문고"],
-      "scheduledData": {"type": "schedule", "fields": {
-         "startYear": "2026",
-         "startMonth": "8",
-         "startDay": "3",
-         "startTime": "14:30",
-         "endYear": "2026",
-         "endMonth": "8",
-         "endDay": "3",
-         "endTime": "16:00"
-         }
+      "scheduledData": {
+         "type": "schedule",
+         "startAt": "2026-08-03T05:30:00Z",
+         "endAt": "2026-08-03T07:00:00Z"
     }, 
     "isDocumented" : true,
     "isCalendared" : true
@@ -694,6 +688,7 @@ GET /api/v1/images?keyword=C%2B%2B&page=0&size=20
 - `query_schema.user_image_view.analysis_status`가 `COMPLETED` 또는 `EMPTY`인 이미지만 상세 조회한다.
 - `EMPTY`는 OCR·분석 결과가 비어 있는 정상 처리 상태이므로 이미지와 존재하는 메타데이터를 반환한다.
 - 분석 상태가 `QUEUED`, `PROCESSING`, `FAILED` 또는 그 밖의 미완료 상태이면 `IMAGE_ANALYSIS_NOT_COMPLETED`(409)로 응답한다.
+- `scheduledData`는 `type`이 `schedule`이면 AI가 추출한 년/월/일/시 조각을 한국 시간(Asia/Seoul)으로 해석해 `startAt`/`endAt` ISO-8601 UTC 타임스탬프로 변환해 내려준다(9-1 일정 응답과 같은 형식). 추출하지 못한 쪽은 `null`이다. 그 외 `type`은 `{type, fields}` 구조를 그대로 내려준다. AI 콜백 계약(년/월/일/시 조각)은 바뀌지 않는다.
 
 ### 에러
 

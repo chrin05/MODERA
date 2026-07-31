@@ -2,6 +2,7 @@ package com.ssafy.modera.api.domain.image.service;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ssafy.modera.api.domain.image.dto.response.ImageDetailResponse;
 import com.ssafy.modera.api.domain.image.dto.response.ImageSummaryResponse;
@@ -10,6 +11,7 @@ import com.ssafy.modera.api.domain.image.repository.ImageListPage;
 import com.ssafy.modera.api.domain.image.repository.ImageListRow;
 import com.ssafy.modera.api.domain.image.repository.ImageQueryRepository;
 import com.ssafy.modera.api.domain.image.repository.UserImageViewDetail;
+import com.ssafy.modera.api.domain.schedule.service.ScheduleTimeParser;
 import com.ssafy.modera.api.global.config.StorageProperties;
 import com.ssafy.modera.api.global.exception.BusinessException;
 import com.ssafy.modera.api.global.exception.GlobalErrorCode;
@@ -26,6 +28,7 @@ import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 import software.amazon.awssdk.services.s3.presigner.model.GetObjectPresignRequest;
 
 import java.time.Duration;
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Locale;
@@ -201,11 +204,31 @@ public class ImageQueryService {
             // 응답 직렬화는 Jackson 3(tools.jackson) 컨버터가 담당해서 Jackson 2의
             // JsonNode를 트리로 인식하지 못한다(게터들이 POJO 프로퍼티로 직렬화돼
             // 내용이 사라짐). 표준 Map/List로 풀어 넘겨야 내용이 그대로 나간다.
-            return objectMapper.readValue(
-                    structuredDataJson, new TypeReference<Map<String, Object>>() {});
-        } catch (JsonProcessingException exception) {
+            JsonNode node = objectMapper.readTree(structuredDataJson);
+            if ("schedule".equalsIgnoreCase(node.path("type").asText())) {
+                return toScheduleTimestamps(node);
+            }
+            return objectMapper.convertValue(node, new TypeReference<Map<String, Object>>() {});
+        } catch (JsonProcessingException | IllegalArgumentException exception) {
             throw new IllegalStateException("이미지 구조화 데이터를 읽을 수 없습니다.", exception);
         }
+    }
+
+    /**
+     * 일정형 구조화 데이터는 년/월/일/시 조각(fields) 대신 일정 API(9-1)와 같은
+     * startAt/endAt ISO-8601 UTC로 내려준다. AI 콜백 계약은 그대로 두고 응답에서만 변환한다.
+     */
+    private Map<String, Object> toScheduleTimestamps(JsonNode node) {
+        JsonNode fields = node.path("fields");
+        OffsetDateTime startAt = ScheduleTimeParser.toDateTime(
+                fields, "startYear", "startMonth", "startDay", "startTime");
+        OffsetDateTime endAt = ScheduleTimeParser.toDateTime(
+                fields, "endYear", "endMonth", "endDay", "endTime");
+        Map<String, Object> converted = new LinkedHashMap<>();
+        converted.put("type", node.path("type").asText());
+        converted.put("startAt", startAt == null ? null : startAt.toInstant().toString());
+        converted.put("endAt", endAt == null ? null : endAt.toInstant().toString());
+        return converted;
     }
 
     private boolean thumbnailExists(String thumbnailKey) {
