@@ -14,7 +14,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends
 from fastapi.responses import JSONResponse
 from pydantic import Field
 
-from . import document, gemini_client, search
+from . import document, gemini_client, llm, search
 from .config import get_settings
 from .deps import _error, require_internal_token
 from .jobs import job_registry
@@ -122,7 +122,7 @@ async def query_parse(request: QueryParseRequest):
     try:
         import asyncio
         parsed = await asyncio.to_thread(
-            gemini_client.generate_json, settings.query_parse_model_name, [prompt]
+            llm.generate_json, settings.query_parse_model_name, [prompt]
         )
         conditions = ParsedConditions.model_validate(
             {k: v for k, v in parsed.items() if k != "confidence"}

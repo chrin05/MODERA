@@ -26,6 +26,21 @@ services:
       OPENSEARCH_HOST: opensearch
       OPENSEARCH_PORT: "9200"
       OPENSEARCH_USE_SSL: "false"
+      # LLM_PROVIDER=claude 로 돌릴 때만 쓰인다(gemini 면 무시된다).
+      # auth2api 는 호스트에서 돌므로 .env.local 의 127.0.0.1 을 컨테이너 기준으로
+      # 덮어쓴다 — S3_ENDPOINT 와 같은 이유다.
+      #
+      # ⚠️ 이게 통하려면 auth2api 가 루프백이 아닌 주소에 바인딩돼 있어야 한다.
+      #    auth2api config.yaml 에서 host: '0.0.0.0' 으로 두어야 하며, 기본값
+      #    host: '' 는 127.0.0.1 전용이라 host-gateway 로 들어온 요청을 거부한다
+      #    (docker-compose.yml 의 MinIO 주석과 같은 제약).
+      #    0.0.0.0 은 개인 Claude 구독 프록시를 LAN 에 여는 것이므로 **로컬 테스트
+      #    한정**이고, 끝나면 host: '' 로 되돌린다. 배포용 compose 에는 넣지 않았다.
+      CLAUDE_BASE_URL: http://host.docker.internal:8317
+    # 위 CLAUDE_BASE_URL 과 S3_ENDPOINT=http://host.docker.internal:9000 경로용.
+    # Docker Desktop 은 기본 제공하지만 Linux 는 이 매핑이 없으면 이름이 안 풀린다.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "8000:8000"
     depends_on:

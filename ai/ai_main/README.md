@@ -22,6 +22,39 @@ docker compose up -d --build
 `GEMINI_API_KEY` 와 `INTERNAL_TOKEN` 은 기본값이 없습니다. 설정하지 않으면 기동 시 바로 실패합니다.
 OpenSearch 는 기동에 30~45초 걸립니다. 그 전 요청은 연결 거부됩니다.
 
+### LLM 프로바이더 전환
+
+`LLM_PROVIDER` 하나로 Gemini ↔ Claude 를 바꿔 끼웁니다(기본 `gemini`, 기존 동작 그대로).
+
+```bash
+LLM_PROVIDER=claude
+CLAUDE_API_KEY=<auth2api config.yaml 의 api-keys 첫 값>
+CLAUDE_BASE_URL=http://127.0.0.1:8317
+```
+
+⚠️ 위 주소는 **호스트에서 uvicorn 으로 띄울 때만** 맞습니다. `docker compose` 로
+띄우면 닿지 않습니다 — auth2api 가 `127.0.0.1:8317` 루프백에만 바인딩하므로
+(`config.yaml` 의 `host: ''`) `host.docker.internal` 로 바꿔도 안 됩니다.
+`docker-compose.yml` 의 MinIO 주석이 설명하는 것과 같은 제약입니다.
+도커에서 쓰려면 (a) auth2api 를 같은 네트워크의 컨테이너로 올리거나,
+(b) auth2api 를 `0.0.0.0` 으로 노출하거나, (c) AI 서버만 호스트에서 돌려야 합니다
+— 자세한 내용은 `.env.example` 의 `CLAUDE_BASE_URL` 주석 참고.
+
+Claude 모델 기본값은 AGENT `claude-sonnet-4-6`, 비전 `claude-haiku-4-5` 이고
+정보성·문서·질의 변환은 AGENT 를 따릅니다. 역할별로 바꾸려면 `CLAUDE_*_MODEL_NAME`
+(Gemini 쪽 `LLM_MODEL_NAME` 등과 **이름공간이 분리**되어 있어 서로 새지 않습니다).
+
+⚠️ **임베딩은 이 토글과 무관하게 항상 Gemini** 입니다 — Anthropic 에는 임베딩
+엔드포인트가 없습니다(`POST /v1/embeddings` → 404). 그래서 `LLM_PROVIDER=claude`
+에서도 `GEMINI_API_KEY` · `GEMINI_BASE_URL` · `EMBEDDING_*` 는 그대로 필요합니다.
+카테고리 벡터(768차원)와 그 인덱스는 전환해도 바뀌지 않습니다.
+
+배선 점검(네트워크·SDK 없이 실행):
+
+```bash
+python scripts/llm_check.py
+```
+
 **Swagger: `http://<호스트>:8000/docs`** — `/api/v1/*` 은 Authorize 없이 바로
 Try it out 이 됩니다. `/internal/v1/*` 만 우측 상단 Authorize 에 토큰이 필요합니다.
 외부에 열린 서버에서 문서를 끄려면 `ENABLE_DOCS=false`.
@@ -350,7 +383,10 @@ curl localhost:8000/health
 app/
   config.py         환경변수 설정 (자격증명 기본값 없음)
   schemas.py        요청·응답 스키마 (내부 snake_case ↔ 경계 camelCase)
-  gemini_client.py  Gemini 호출 격리 (SDK 교체 시 이 파일만 수정)
+  llm/              LLM 프로바이더 디스패처 (LLM_PROVIDER 토글 하나로 전환)
+    __init__.py     generate_json / image_part 만 노출. 호출부는 프로바이더를 모른다
+    claude.py       Anthropic 호출 격리 (auth2api 경유). anthropic SDK 를 이 파일에만 가둠
+  gemini_client.py  Gemini 호출 격리 + **임베딩 전담**(프로바이더 무관, 항상 여기)
   storage.py        S3 원본 이미지 조회
   spring_client.py  10-4 콜백 / 10-5 후보 조회
   category.py       카테고리 유사도 판정 (이름 임베딩 캐시 포함)

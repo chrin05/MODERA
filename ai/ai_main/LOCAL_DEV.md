@@ -50,8 +50,9 @@ cp .env.local.example .env.local
 | 변수 | 로컬 값 | 이유 |
 | --- | --- | --- |
 | `INTERNAL_TOKEN` | `local-dev-internal-token` | worker 의 `internal.callback.token` 기본값과 **같아야** 한다. 양방향 공유 토큰이라 요청·콜백 양쪽에 쓰인다 |
-| `MOCK_AI` | `true` | Gemini 없이 띄우기. 아래 "Gemini 키" 참고 |
-| `GEMINI_API_KEY` | 비워 둠 | `MOCK_AI=true` 면 필요 없다 |
+| `MOCK_AI` | `true` | 모델 호출 없이 띄우기. 아래 "모델 키 없이 테스트하기" 참고 |
+| `LLM_PROVIDER` | `gemini` | `claude` 로 바꾸면 auth2api 경유 Anthropic. 아래 "Claude 로 돌리기" 참고 |
+| `GEMINI_API_KEY` | 비워 둠 | `MOCK_AI=true` 면 필요 없다. `LLM_PROVIDER` 와 무관하게 임베딩이 쓴다 |
 | `S3_ENDPOINT` | `http://localhost:9002` (호스트) / `http://minio:9000` (컨테이너) | local-infra MinIO |
 | `S3_ACCESS_KEY` / `S3_SECRET_KEY` | `minioadmin` / `minioadmin` | local-infra 기본 계정 |
 | `S3_BUCKET` / `S3_THUMBNAIL_BUCKET` | `pictures` / `thumbnails` | api-server 의 버킷명과 동일 |
@@ -72,15 +73,52 @@ cp .env.local.example .env.local
   worker 에는 이 엔드포인트가 없어 건당 `SPRING_TIMEOUT`(3초)만 버린다.
   **로컬에서는 `false` 로 두는 게 맞다.**
 
-### Gemini 키 없이 테스트하기
+### Claude 로 돌리기 (LLM_PROVIDER)
+
+`LLM_PROVIDER` 하나로 LLM 호출을 Gemini ↔ Claude 로 바꿔 끼운다. 기본은 `gemini`
+라 아무 것도 안 하면 기존 동작 그대로다.
+
+```bash
+LLM_PROVIDER=claude
+CLAUDE_API_KEY=<auth2api config.yaml 의 api-keys 첫 값>
+```
+
+- auth2api(로컬 OAuth 프록시)를 먼저 띄워야 한다: `cd <auth2api> && npm start`.
+  살아 있는지는 `curl http://127.0.0.1:8317/health` 로 확인한다.
+- `pip install -r requirements.txt` 로 `anthropic` 을 깔아야 한다.
+- ⚠️ **호스트에서 uvicorn 으로 띄울 때만 `127.0.0.1:8317` 이 통한다.**
+  `docker-compose.local.yml` 로 띄우면 닿지 않고, `host.docker.internal` 로 바꿔도
+  안 된다 — auth2api 가 `127.0.0.1:8317` **루프백에만** 바인딩하기 때문이다
+  (`config.yaml` 의 `host: ''`). host-gateway 로 나간 요청은 호스트의 브리지 IP 로
+  도착해 거부된다. `docker-compose.yml:64` 의 MinIO 주석과 같은 제약이다.
+  도커에서 쓰려면 셋 중 하나: (a) auth2api 를 같은 compose 네트워크의 컨테이너로
+  올려 `CLAUDE_BASE_URL=http://auth2api:8317`, (b) auth2api 를 `0.0.0.0` 으로 노출,
+  (c) AI 서버만 호스트에서 돌린다. 상세는 `.env.example` 의 해당 주석.
+- 모델 기본값은 AGENT `claude-sonnet-4-6`, 비전 `claude-haiku-4-5`. 역할별 재정의는
+  `CLAUDE_*_MODEL_NAME` 이며, Gemini 쪽 `LLM_MODEL_NAME` 등과 이름공간이 분리되어
+  있어 `.env.local` 에 gemini 모델명이 박혀 있어도 새지 않는다.
+- ⚠️ **임베딩은 이 값과 무관하게 항상 Gemini** 다. Anthropic 에는 임베딩 엔드포인트가
+  없다(`POST /v1/embeddings` → 404). claude 모드에서도 `GEMINI_API_KEY` ·
+  `EMBEDDING_DIM`(768)은 그대로 필요하고, worker 의 `EMBEDDING_DIM` 과 계속 맞아야 한다.
+
+배선만 확인하려면(네트워크·SDK 없이 돈다):
+
+```bash
+python scripts/llm_check.py
+```
+
+프로바이더 디스패치, 모델 이름공간 누출, Anthropic content 블록 변환, 이미지 축소
+예산, MOCK 경로를 검증한다.
+
+### 모델 키 없이 테스트하기
 
 원래는 mock 모드가 없었다. 이번에 `MOCK_AI` 를 추가했다.
 
 ```bash
-MOCK_AI=true      # GEMINI_API_KEY 없이 기동
+MOCK_AI=true      # 모델 키 없이 기동 (LLM_PROVIDER 둘 다 동작)
 ```
 
-- `gemini_client.generate_json` / `embed` 가 Gemini 를 부르지 않고 가짜 응답을 준다.
+- `generate_json` / `embed` 가 실제 모델을 부르지 않고 가짜 응답을 준다.
   임베딩은 텍스트 해시 기반 결정적 768차 단위 벡터라 매번 같은 값이 나온다.
 - **확인되는 것**: S3 읽기, 썸네일 생성·업로드, 3단계 흐름, 색인, 콜백 전송,
   동시성·세마포어 동작.

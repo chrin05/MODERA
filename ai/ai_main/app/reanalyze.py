@@ -27,7 +27,7 @@ from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 from pydantic import Field
 
-from . import category_store, gemini_client, search, spring_client, stages
+from . import category_store, gemini_client, llm, search, spring_client, stages
 from .category import normalize_name, resolve_category
 from .config import get_settings
 from .deps import _error
@@ -92,7 +92,7 @@ def _pick_category(text: str, candidate_names: list[str], excluded_names: list[s
         '{"category":"...","reason":"간단한 근거"}\n\n'
         f"분석 결과:\n{text}"
     )
-    parsed = gemini_client.generate_json(get_settings().llm_model_name, [prompt])
+    parsed = llm.generate_json(get_settings().llm_model_name, [prompt])
     return str(parsed.get("category") or "").strip()
 
 

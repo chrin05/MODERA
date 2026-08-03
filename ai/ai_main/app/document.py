@@ -21,7 +21,7 @@ import logging
 import re
 from typing import Any
 
-from . import gemini_client
+from . import llm
 from .config import get_settings
 from .schemas import DocumentImage
 from .timeutil import now_iso
@@ -142,10 +142,10 @@ def generate_document(
     instruction: str | None = None,
     language: str | None = None,
 ) -> dict[str, Any]:
-    """Gemini 로 문서 구조를 만든다. 반환값은 그대로 render_markdown 에 넣는다."""
+    """LLM 으로 문서 구조를 만든다. 반환값은 그대로 render_markdown 에 넣는다."""
     settings = get_settings()
     prompt = build_prompt(sources, title, instruction, language)
-    parsed = gemini_client.generate_json(settings.document_model_name, [prompt])
+    parsed = llm.generate_json(settings.document_model_name, [prompt])
 
     valid_ids = {s["image_id"] for s in sources}
     sections = []

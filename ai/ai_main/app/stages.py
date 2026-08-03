@@ -12,7 +12,7 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from . import category_store, gemini_client, search, spring_client, storage
+from . import category_store, gemini_client, llm, search, spring_client, storage
 from .category import CategoryResolution, normalize_name, resolve_category
 from .config import get_settings
 from .jobs import job_registry, job_store
@@ -256,7 +256,7 @@ def run_llm(ocr_text: str) -> tuple[str, dict[str, Any]]:
     )
     # 이진 판단이라 경량 모델 전용 스위치를 쓴다 — AGENT 모델을 올릴 때
     # 이 호출까지 따라 올라가지 않게 분리(비용 절반, config 참조).
-    parsed = gemini_client.generate_json(settings.informative_model_name, [prompt])
+    parsed = llm.generate_json(settings.informative_model_name, [prompt])
     return "COMPLETED", {
         "informative": bool(parsed.get("informative", False)),
         "confidence": float(parsed.get("confidence", 0.0)),
@@ -280,8 +280,8 @@ def run_image_analysis(image_ref: str, image_bytes: bytes | None = None) -> dict
         "반드시 아래 JSON만 출력. 마크다운·설명 금지.\n"
         '{"description":"...","detected_texts":["..."],"objects":["..."]}'
     )
-    parsed = gemini_client.generate_json(
-        settings.vision_model_name, [prompt, gemini_client.image_part(image_bytes)]
+    parsed = llm.generate_json(
+        settings.vision_model_name, [prompt, llm.image_part(image_bytes)]
     )
     return {
         "description": parsed.get("description", ""),
@@ -385,8 +385,8 @@ def run_agent_generation(
     )
     parts: list[Any] = [prompt]
     if image_bytes is not None:
-        parts.append(gemini_client.image_part(image_bytes))
-    return gemini_client.generate_json(settings.llm_model_name, parts)
+        parts.append(llm.image_part(image_bytes))
+    return llm.generate_json(settings.llm_model_name, parts)
 
 
 def _split_dt(value: str | None) -> dict[str, Any] | None:
@@ -930,7 +930,9 @@ async def _run_full_pipeline(
             #    바코드·문서 서식 같은 시각 신호가 한 줄로 압축되며 증발한다
             #    (실사진 40장 파일럿: 요약 경유 45% vs 직접 투입 70%).
             #    호출 3회 → 1회라 비용·지연도 준다. 이미지는 image_part 가
-            #    GMS 본문 한도(~90KB) 안으로 자동 축소한다.
+            #    프로바이더 한도 안으로 자동 축소한다 — gemini 는 GMS 본문
+            #    한도(~90KB)에 맞춰 40KB, claude 는 모델 입력 해상도 계층에
+            #    맞춰 면적 기준으로 줄인다(app/llm/claude.py 참고).
             job_store.update(job_id, "PROCESSING", stage="AGENT")
             with _timed(timings, "AGENT"):
                 generated = await run_agent_core(

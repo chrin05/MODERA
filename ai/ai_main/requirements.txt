@@ -9,6 +9,9 @@ pillow>=10.0
 # 구 google-generativeai 에서 이전(2026-08-03). thinking 제어(thinkingConfig)와
 # REST 전송이 필요해서다 — 상세는 app/gemini_client.py 모듈 docstring 참고.
 google-genai>=1.30
+# LLM_PROVIDER=claude 경로. 임베딩은 Anthropic 에 엔드포인트가 없어
+# 계속 google-genai 를 쓴다 — 상세는 app/llm/__init__.py 모듈 docstring.
+anthropic>=0.60
 opensearch-py>=2.4
 # 검색용 로컬 임베딩(bge-m3). torch 는 Dockerfile 에서 CPU 전용 휠로 먼저 설치한다.
 sentence-transformers>=3.0

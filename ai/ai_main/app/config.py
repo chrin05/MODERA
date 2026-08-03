@@ -23,7 +23,22 @@ class Settings:
         # ⚠️ 분석 품질은 확인할 수 없다. 배포 환경에서는 절대 켜지 말 것.
         self.mock_ai = os.environ.get("MOCK_AI", "false").lower() == "true"
 
+        # LLM 프로바이더 토글 — 이 값 하나로 Gemini ↔ Claude 를 바꿔 끼운다.
+        # 해석은 app/llm/__init__.py 가 하고, 아래 *_model_name 이 프로바이더별
+        # 이름으로 미리 확정된다. 호출부는 프로바이더를 모른다.
+        #
+        # ⚠️ 임베딩은 이 값과 무관하게 **항상 Gemini** 다 — Anthropic 에는 임베딩
+        # 엔드포인트가 없다(auth2api 경유 POST /v1/embeddings → 404, 2026-08-04 실측).
+        # 그래서 GEMINI_API_KEY 는 claude 모드에서도 여전히 필수다.
+        self.llm_provider = (
+            os.environ.get("LLM_PROVIDER", "gemini").strip().lower() or "gemini")
+        if self.llm_provider not in ("gemini", "claude"):
+            raise RuntimeError(
+                f"LLM_PROVIDER 는 gemini 또는 claude 여야 합니다: {self.llm_provider!r}")
+        _claude = self.llm_provider == "claude"
+
         # 자격증명 (기본값 없음)
+        # embed 가 프로바이더와 무관하게 Gemini 를 쓰므로 항상 요구한다.
         self.gemini_api_key = "" if self.mock_ai else _required("GEMINI_API_KEY")
         self.internal_token = _required("INTERNAL_TOKEN")
 
@@ -136,11 +151,30 @@ class Settings:
         self.search_bm25_min_score = float(os.environ.get("SEARCH_BM25_MIN_SCORE", "0.0"))
 
         # 모델
-        # GMS 프록시가 모델을 화이트리스트로 막는다. 허용 확인된 값:
+        #
+        # 두 프로바이더는 모델 카탈로그가 겹치지 않으므로 **env 이름공간도 분리**한다
+        # (claude 쪽은 CLAUDE_ 접두사). 팀 .env 에 이미
+        # LLM_MODEL_NAME=gemini-2.5-flash-lite 가 박혀 있어도 LLM_PROVIDER 만 바꾸면
+        # 되고, gemini 모델명이 Anthropic 으로 새어 404 나는 일이 없다.
+        #
+        # [gemini] GMS 프록시가 모델을 화이트리스트로 막는다. 허용 확인된 값:
         # gemini-2.5-flash-lite / gemini-2.5-flash / gemini-2.5-pro / gemini-3.5-flash
         # (gemini-3.5-flash-lite 는 400 "Model is not available")
-        self.llm_model_name = os.environ.get("LLM_MODEL_NAME", "gemini-2.5-flash-lite")
-        self.vision_model_name = os.environ.get("VISION_MODEL_NAME", "gemini-2.5-flash-lite")
+        #
+        # [claude] 4-6 계열로 고정한다. 2026-08-04 실측에서 sonnet-5 는 같은 요청에
+        # 529/503 을 3연속 냈고 sonnet-4-6·haiku-4-5 는 1차 성공이었다. 529 는
+        # 업스트림 용량 문제라 코드로 없앨 수 없어 모델 선택으로 회피한다.
+        # 비전은 haiku-4-5 — 최경량이면서 실측 신뢰도가 가장 높았고, 이 파이프라인은
+        # 비전 모델에 정밀 OCR 을 요구하지 않는다(글자는 기기 OCR 이 원본 해상도로
+        # 따로 넣고, 모델은 레이아웃·색·로고 같은 시각 신호만 쓴다).
+        if _claude:
+            self.llm_model_name = (
+                os.environ.get("CLAUDE_LLM_MODEL_NAME") or "claude-sonnet-4-6")
+            self.vision_model_name = (
+                os.environ.get("CLAUDE_VISION_MODEL_NAME") or "claude-haiku-4-5")
+        else:
+            self.llm_model_name = os.environ.get("LLM_MODEL_NAME", "gemini-2.5-flash-lite")
+            self.vision_model_name = os.environ.get("VISION_MODEL_NAME", "gemini-2.5-flash-lite")
         # 정보성 판별(EMPTY 거르기) 전용 모델 스위치. AGENT(LLM_MODEL_NAME)를 상위
         # 모델로 올릴 때 이 호출까지 따라 올라가 비용이 2배가 되는 것을 막는 용도
         # (GMS 실측 2026-07-31: 장당 67크레딧 중 절반이 이 호출).
@@ -149,19 +183,22 @@ class Settings:
         # "기타 금지" 규칙과 결합하면 '계산'·'스마트폰' 같은 쓰레기 카테고리가
         # 생긴다(실측). 프롬프트 보강 후에도 4장 중 1장(배터리) 누수. lite 절감은
         # 실데이터 누수율 측정 후 INFORMATIVE_MODEL_NAME 로 명시 옵트인할 것.
-        self.informative_model_name = (
-            os.environ.get("INFORMATIVE_MODEL_NAME") or self.llm_model_name)
+        # 프로바이더별 env 이름공간(위 [모델] 주석 참고). claude 모드에서는
+        # CLAUDE_INFORMATIVE_MODEL_NAME 등으로 개별 재정의한다.
+        def _role_model(env: str) -> str:
+            return os.environ.get(f"CLAUDE_{env}" if _claude else env) or self.llm_model_name
+
+        self.informative_model_name = _role_model("INFORMATIVE_MODEL_NAME")
         # 문서 생성(명세 11장) 전용 모델. 사용자 대면 장문이라 품질 우선 —
         # 대량 분석(AGENT)을 싼 모델로 내려도 문서 품질은 따로 지킨다.
         # 호출이 희소해 단가가 사실상 무의미한 경로다. 미설정 시 AGENT 를 따른다.
-        self.document_model_name = (
-            os.environ.get("DOCUMENT_MODEL_NAME") or self.llm_model_name)
+        self.document_model_name = _role_model("DOCUMENT_MODEL_NAME")
         # 자연어 검색 조건 변환(10-3) 전용 모델. 키워드·가격·날짜 추출 수준이라
         # 최경량이면 충분하고, 검색은 사용자가 기다리는 경로라 지연에 민감하다.
         # AGENT 모델을 따라가게 두면 검색마다 상위 모델 단가·추론 토큰을 내게 된다
         # (GMS 실측 계기 — 2026-08-03). 미설정 시 AGENT 를 따른다(기존 동작 호환).
-        self.query_parse_model_name = (
-            os.environ.get("QUERY_PARSE_MODEL_NAME") or self.llm_model_name)
+        self.query_parse_model_name = _role_model("QUERY_PARSE_MODEL_NAME")
+        # 임베딩은 LLM_PROVIDER 와 무관하게 항상 Gemini 다(Anthropic 에 엔드포인트 없음).
         self.embedding_model_name = os.environ.get("EMBEDDING_MODEL_NAME", "gemini-embedding-2")
         # 임베딩 차원. 팀 합의로 768 고정이며 pgvector 컬럼(vector(768))과 일치해야 한다.
         # gemini-embedding-2 의 기본 출력은 3072 라 호출 시 명시적으로 줄여서 받는다.
@@ -241,6 +278,29 @@ class Settings:
         # 오지 않는 요청 하나가 asyncio.to_thread 스레드를 영구 점유한다.
         # nginx 의 proxy_read_timeout(120s) 안에 재시도 여유까지 두고 90 으로 잡는다.
         self.gemini_timeout = float(os.environ.get("GEMINI_TIMEOUT", "90"))
+
+        # ── Claude (LLM_PROVIDER=claude 일 때만 쓰인다) ────────────────────
+        # 기본 경로는 로컬 auth2api(OAuth 프록시). 비우면 SDK 기본 호스트로 직결한다.
+        self.claude_base_url = (
+            os.environ.get("CLAUDE_BASE_URL", "http://127.0.0.1:8317").rstrip("/"))
+        # claude 모드가 아니면 요구하지 않는다 — gemini 사용자는 아무 것도 추가로
+        # 설정할 필요가 없다. auth2api 를 쓰면 그 config.yaml 의 api-keys 값이다.
+        self.claude_api_key = (
+            "" if (self.mock_ai or not _claude) else _required("CLAUDE_API_KEY"))
+        # 출력 상한. **목표치가 아니라 천장**이라 넉넉히 잡아도 비용이 늘지 않는다
+        # (모델은 end_turn 에서 멈춘다). 문서 생성(명세 11장)은 다구간 장문이라
+        # 8K 면 잘릴 수 있고, 비스트리밍은 ~16K 까지가 SDK HTTP 타임아웃 안쪽이다.
+        self.claude_max_tokens = int(os.environ.get("CLAUDE_MAX_TOKENS", "16000"))
+        # ⚠️ anthropic SDK 의 timeout 은 **초**다(google-genai 신 SDK 는 밀리초).
+        self.claude_timeout = float(os.environ.get("CLAUDE_TIMEOUT", "90"))
+        # SDK 가 408/409/429/5xx(529 overloaded, auth2api 의 503 포함)를 지수
+        # 백오프로 자동 재시도한다. gemini 쪽 수동 재시도 루프에 대응하는 값.
+        self.claude_max_retries = int(os.environ.get("CLAUDE_MAX_RETRIES", "5"))
+        # 이미지 입력 예산(긴 변 px 상당, 실제로는 면적 기준 — llm/claude._fit 참고).
+        # sonnet-4-6·haiku-4-5 는 1568px 계층이다. opus-4-7 이상이나 sonnet-5 로
+        # 올릴 때 2576 으로 함께 올린다.
+        self.claude_image_long_edge = int(
+            os.environ.get("CLAUDE_IMAGE_LONG_EDGE", "1568"))
 
 
 @lru_cache(maxsize=1)
