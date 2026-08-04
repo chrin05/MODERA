@@ -119,6 +119,12 @@ def _index_body() -> dict[str, Any]:
                 "s3_key": {"type": "keyword", "index": False},
                 "key_information": {"type": "keyword", "index": False},
                 "category_confidence": {"type": "float", "index": False},
+                # 융합 호출이 이미지와 대조해 교정한 화면 텍스트(6-2 '추출된 텍스트').
+                # 검색은 raw_text 로만 한다 — 교정본을 검색 대상에 넣으면 SEARCH_FIELDS
+                # 계약과 점수 분포가 바뀌므로 저장 전용이다. 기존 인덱스에는 이 필드가
+                # 없지만 dynamic mapping 이 첫 쓰기에 붙여 주고, 질의하지 않으므로
+                # 매핑 종류가 무엇이든 무해하다(재색인 불필요).
+                "refined_text": {"type": "text", "index": False},
             }
         },
     }
@@ -257,6 +263,7 @@ def index_document(
     status: str = "COMPLETED",
     category_confidence: float | None = None,
     uploaded_at: str | None = None,
+    refined_text: str | None = None,
 ) -> None:
     """AGENT 결과를 검색 인덱스에 저장한다. image_id 를 문서 id 로 써서 재색인은 덮어쓴다."""
     ensure_index()
@@ -277,6 +284,10 @@ def index_document(
     }
     if uploaded_at:
         doc["uploaded_at"] = uploaded_at
+    if refined_text:
+        # 빈 값이면 키를 넣지 않는다 — 재분석이 교정본 없이 다시 색인할 때
+        # 이미 있는 교정본을 null 로 덮지 않게 한다(_merge_doc 은 부분 병합).
+        doc["refined_text"] = refined_text
     # 검색용 시맨틱 벡터(로컬 bge-m3). best-effort — 실패해도 색인·BM25 는 계속 동작.
     # 빈 OCR 이미지는 title·summary 가 비어 벡터를 만들지 않는다(kNN 대상에서 자연히 제외).
     search_text = " ".join(p for p in (title, summary) if p).strip()
@@ -933,6 +944,7 @@ def get_image(image_id: int) -> dict[str, Any] | None:
     detail["user_id"] = source.get("user_id")
     detail["key_information"] = source.get("key_information", [])
     detail["raw_text"] = source.get("raw_text", "")
+    detail["refined_text"] = source.get("refined_text")
     detail["ocr_lang"] = source.get("ocr_lang")
     detail["ocr_confidence"] = source.get("ocr_confidence")
     detail["file_size"] = source.get("file_size")

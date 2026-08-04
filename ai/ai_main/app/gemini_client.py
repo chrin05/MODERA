@@ -123,17 +123,35 @@ def _log_usage(model_name: str, response: Any) -> None:
     """토큰 사용량 계측. '예상보다 많이 먹는다'를 감이 아니라 숫자로 확인하기 위한 로그.
 
     thoughts 가 thinking 토큰이며 **출력 단가로 과금**된다 — thinking 제어가
-    실제로 먹혔는지는 이 값이 0/None 인지로 판정한다. 계측 실패가 본 호출을
-    죽여서는 안 되므로 전부 best-effort 다.
+    실제로 먹혔는지는 이 값이 0/None 인지로 판정한다.
+
+    cached 는 implicit caching 이 잡아 준 프리픽스 토큰이며 **입력 단가의 25%**만
+    청구된다. 이 값이 프롬프트 재배치(config.prompt_static_prefix)의 유일한
+    판정 근거다:
+      - 항상 None → GMS 프록시가 cachedContentTokenCount 를 안 흘려주거나
+        implicit caching 을 안 태운다. 재배치해도 이득이 없다.
+      - 0 또는 1,024 미만에서 흔들림 → 가변 데이터가 프리픽스를 끊고 있다
+        (2.5 계열 최소 1,024토큰 미달이면 캐시가 아예 안 붙는다). 재배치 이득이 크다.
+      - prompt 의 대부분을 차지하며 안정적 → 이미 먹고 있다. 남은 이득은 작다.
+
+    계측 실패가 본 호출을 죽여서는 안 되므로 전부 best-effort 다.
     """
     try:
         usage = getattr(response, "usage_metadata", None)
         if usage is None:
             return
+        prompt_tokens = getattr(usage, "prompt_token_count", None)
+        cached = getattr(usage, "cached_content_token_count", None)
+        # 비율까지 찍어 둔다 — 로그를 눈으로 훑을 때 "붙었나 안 붙었나"를
+        # 두 숫자 나눠 보지 않고 바로 읽기 위해서다.
+        ratio = (f" ({cached / prompt_tokens:.0%})"
+                 if cached and prompt_tokens else "")
         logger.info(
-            "Gemini usage model=%s prompt=%s thoughts=%s candidates=%s total=%s",
+            "Gemini usage model=%s prompt=%s cached=%s%s thoughts=%s candidates=%s total=%s",
             model_name,
-            getattr(usage, "prompt_token_count", None),
+            prompt_tokens,
+            cached,
+            ratio,
             getattr(usage, "thoughts_token_count", None),
             getattr(usage, "candidates_token_count", None),
             getattr(usage, "total_token_count", None),

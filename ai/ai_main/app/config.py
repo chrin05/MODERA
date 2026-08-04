@@ -263,6 +263,25 @@ class Settings:
         self.gemini_thinking_budget = int(os.environ.get("GEMINI_THINKING_BUDGET", "0"))
         self.gemini_thinking_level = os.environ.get("GEMINI_THINKING_LEVEL", "")
 
+        # 프롬프트 정적 프리픽스 재배치 — Gemini implicit caching 은 프롬프트 앞부분이
+        # **바이트 단위로 일치**할 때만 그 구간을 입력 단가의 25% 로 청구한다
+        # (2.5 계열 최소 1,024토큰, 미달이면 캐시가 아예 안 붙는다).
+        # 기존 조립 순서는 가변 데이터가 규칙 문장 사이에 끼어 있어서 캐시 가능
+        # 구간이 950자(≈700토큰)까지 붕괴한다 — 최소치 미달로 0이다. 특히
+        # 기준 시각(ref_now)은 초마다 바뀌어 그 뒤 641자를 영구히 캐시 불가로 만든다.
+        # true 면 규칙·정의·출력 스키마를 통째로 앞에, 후보 목록·기존 태그·기준 시각·
+        # OCR 을 [입력] 절로 뒤에 보낸다. 정적부 ≈1,750토큰 → 콜당 입력 약 1,300토큰 절감.
+        #
+        # ⚠️ 기본 false. 이건 프롬프트 배치 변경이고, 이 저장소에는 프롬프트를 건드려
+        # 정확도를 잃은 실측이 두 건 있다(카테고리_정확도_측정보고 §8-2: 포괄어 금지
+        # → 'IT' 로 도망, few-shot 추가 → −3.8%p). 켜기 전 순서:
+        #   1) Gemini usage 로그의 cached=... 가 실제로 오는지 확인한다. 항상 None 이면
+        #      GMS 프록시가 implicit caching 을 안 태우는 것이고 이 레버는 효과가 없다.
+        #   2) 라벨셋으로 false/true A/B 를 돌려 카테고리 정확도 동등을 확인한다.
+        #   3) 동등하면 true 로 고정하고 이 스위치와 stages 의 분기를 함께 지운다.
+        self.prompt_static_prefix = (
+            os.environ.get("PROMPT_STATIC_PREFIX", "false").lower() == "true")
+
         # Gemini 429(rate limit) 재시도. 지수 백오프 + 지터로 재시도한다.
         self.gemini_max_attempts = int(os.environ.get("GEMINI_MAX_ATTEMPTS", "5"))
         self.gemini_backoff_base = float(os.environ.get("GEMINI_BACKOFF_BASE", "1.0"))

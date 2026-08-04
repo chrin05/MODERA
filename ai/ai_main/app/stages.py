@@ -109,6 +109,13 @@ EMPTY_CATEGORY = CATEGORY_POLICY["empty"]
 NEW_NAME_EXAMPLES = list(CATEGORY_POLICY["new_name_examples"])
 
 
+# 정적 프리픽스 모드에서 가변 데이터가 시작하는 절의 라벨. 규칙 문장이 "아래 [입력]
+# 절에" 로 이 절을 가리키므로 문구가 일치해야 한다. 줄바꿈까지 포함해 두면 본문의
+# 포인터 문구("[입력] 절에", "[입력] 의")와 겹치지 않아 위치를 유일하게 찾을 수 있다
+# — 캐시 프리픽스의 끝을 이 라벨 위치로 측정한다(test_prompt_layout).
+INPUT_LABEL = "[입력]\n"
+
+
 def _check_category_config() -> list[str]:
     """카테고리 정책의 내적 정합성을 확인한다. 문제 목록을 돌려준다(기동 시 경고).
 
@@ -132,11 +139,22 @@ def _check_category_config() -> list[str]:
     return problems
 
 
-def _category_prompt_section(candidate_names: list[str] | str) -> str:
-    """카테고리 정책을 프롬프트 문단으로 렌더링한다.
+def _category_prompt_section(
+    candidate_names: list[str] | str, static_prefix: bool = False
+) -> tuple[str, str, str]:
+    """카테고리 정책을 (정의, 후보 목록, 규칙) 세 조각으로 렌더링한다.
 
     후보 이름이 정책에 정의(포함 조건)를 가지면 "이름(조건)" 으로 보여준다 —
     사용자별 신규 카테고리(정의 없음)는 이름 그대로다.
+
+    왜 조각인가: 캐싱이다. 규칙과 정의는 요청과 무관하게 같은 바이트지만 후보
+    목록은 사용자·시점마다 바뀐다. 호출자가 정적 조각만 프롬프트 앞으로 모으면
+    implicit cache 가 그 구간을 잡는다(config.prompt_static_prefix).
+
+    static_prefix=False 면 세 조각을 이어 붙인 결과가 **예전 한 덩어리와 완전히
+    같은 문자열**이다(정의="" + 후보(정의 인라인) + 규칙). 문장은 이 함수 한
+    곳에만 존재한다 — 두 모드가 문구를 따로 들고 있으면 한쪽만 고치는 사고가
+    난다(이 모듈 상단 주석이 경고하는 그 사고다).
     """
     pol = CATEGORY_POLICY
     defs = pol["categories"]
@@ -164,8 +182,8 @@ def _category_prompt_section(candidate_names: list[str] | str) -> str:
         for scene, a in pol["few_shot"]
     ).rstrip(",")
     example_line = f"예: {examples}. " if examples else ""
-    return (
-        f"기존 카테고리 후보: {shown}. 내용과 무리 없이 맞는 후보가 있으면 그것을 골라라. "
+    rules = (
+        "내용과 무리 없이 맞는 후보가 있으면 그것을 골라라. "
         "단, 어느 후보도 맞지 않는데 억지로 끼워 맞추지는 마라 — 그때만 새 카테고리 이름을 제안하라(2~6자). "
         + naming +
         "브랜드명·상호명·장소명·제품명은 카테고리로 만들지 마라 — 그런 구체 정보는 태그와 주요정보에 담는다. "
@@ -175,6 +193,17 @@ def _category_prompt_section(candidate_names: list[str] | str) -> str:
         f"'{pol['empty']}'는 고르지 마라 — 어느 후보도 맞지 않으면 반드시 새 이름을 제안하라. "
         f"{example_line}"
         "categories 에는 최종 카테고리명 하나만 넣어라.\n\n"
+    )
+    if not static_prefix:
+        return "", f"기존 카테고리 후보: {shown}. ", rules
+    # 정적 모드: 정의는 기본 목록 전체를 항상 같은 문장으로 내보내고(가변 후보에
+    # 인라인으로 붙이면 목록이 바뀔 때마다 프리픽스가 깨진다), 후보는 이름만
+    # 꼬리로 보낸다. 규칙이 후보를 가리키므로 어디서 찾을지 먼저 알려 준다.
+    definitions = ", ".join(f"{n}({d})" for n, d in defs.items() if d)
+    return (
+        f"카테고리 정의: {definitions}.\n\n",
+        f"기존 카테고리 후보: {', '.join(str(n) for n in names)}.\n",
+        "기존 카테고리 후보 목록은 아래 [입력] 절에 있다. " + rules,
     )
 
 
@@ -316,26 +345,37 @@ def run_agent_generation(
     문서 서식 같은 시각 신호가 요약 한 줄로 압축되며 증발하던 것이 원인이었다.
     """
     settings = get_settings()
+    # 정적 프리픽스 모드 — 규칙·정의·출력 스키마를 앞으로, 가변 데이터(후보 목록·
+    # 기존 태그·기준 시각·OCR)를 전부 [입력] 절로 뒤로 보낸다. implicit cache 는
+    # 바이트 일치 프리픽스만 잡으므로 이 분리가 캐시 길이를 결정한다(config 주석).
+    static = settings.prompt_static_prefix
     tag_rule = (
         f"[태그] 핵심 키워드 위주로 최대 {max_tags}개, 중복·과도한 일반 태그 제외. 사람 이름은 태그로 만들지 마라(본인 갤러리라 검색에 쓸 데가 없고, 손글씨·서명은 오독 위험이 크다).\n"
         if max_tags else "[태그] 중복·과도한 일반 태그 제외. 사람 이름은 태그로 만들지 마라.\n"
     )
     # 기존 태그를 기준점으로 준다. 의미가 같은 태그의 난립('맛집' vs '맛집추천')을 막고
     # 어휘를 수렴시킨다. 카테고리의 기존 후보 제시와 같은 취지. 없으면 자유 생성(콜드스타트).
-    if existing_tags:
-        tag_rule += (
-            f"기존 태그 목록: {existing_tags}. 의미가 같은 태그가 이 목록에 있으면 "
-            "새로 만들지 말고 그대로 재사용하라. 목록에 맞는 것이 없을 때만 새 태그를 만들어라.\n"
-        )
+    # 목록을 가리키는 문장("이 목록에")과 목록 자체는 반드시 붙어 있어야 하므로
+    # 정적 모드에서도 통째로 함께 꼬리로 간다.
+    tag_examples = (
+        f"기존 태그 목록: {existing_tags}. 의미가 같은 태그가 이 목록에 있으면 "
+        "새로 만들지 말고 그대로 재사용하라. 목록에 맞는 것이 없을 때만 새 태그를 만들어라.\n"
+        if existing_tags else ""
+    )
+    if not static:
+        tag_rule += tag_examples
     tag_rule += "\n"
     language_rule = f"출력 언어는 {language} 로 한다.\n" if language else ""
     # 캘린더용 일정 추출(schedule). 상대 날짜는 기준 시각(서버 현재 KST)으로 해석한다.
     # 스크린샷 캡처 시각이 요청에 없어 분석 시각을 기준으로 쓴다(대부분 일정은 절대 날짜라 영향 작음).
     ref_now = datetime.now(timezone(timedelta(hours=9))).strftime("%Y-%m-%dT%H:%M:%S+09:00")
+    # 이 타임스탬프는 초마다 바뀐다 — 규칙 문장 안에 박아 두면 그 뒤 전부가 영구히
+    # 캐시 불가다. 정적 모드는 값을 [입력] 으로 빼고 여기서는 가리키기만 한다.
+    ref_phrase = "아래 [입력] 의 기준 시각으로" if static else f"기준 시각 {ref_now} 로"
     schedule_rule = (
         "[일정] 예약·티켓·행사·마감처럼 캘린더에 올릴 일정이 화면에 있으면 schedule 로 뽑아라.\n"
         "- startAt: 행사 시작 시각. endAt: 행사 종료 시각. **마감 기한('~까지')은 endAt 에 넣고 startAt 은 null 로 둬라.**\n"
-        f"- ISO-8601(KST). 시각을 알면 '2026-08-03T14:30:00+09:00', 날짜만 알면 '2026-08-03'. 상대 날짜(내일·이번 주 금요일 등)는 기준 시각 {ref_now} 로 계산.\n"
+        f"- ISO-8601(KST). 시각을 알면 '2026-08-03T14:30:00+09:00', 날짜만 알면 '2026-08-03'. 상대 날짜(내일·이번 주 금요일 등)는 {ref_phrase} 계산.\n"
         "- 연도가 없으면 기준 시각 기준 가장 가까운 미래로. 확인 안 된 값은 null(추측 금지). 일정이 전혀 없으면 둘 다 null.\n\n"
     )
     if image_bytes is not None and len(ocr_text or "") > 3000:
@@ -383,34 +423,51 @@ def run_agent_generation(
         )
     else:
         header = "OCR 텍스트와 이미지 분석 결과를 종합해 개인 지식 DB용 메타데이터를 생성하라.\n\n"
-    prompt = (
-        header
-        + "[카테고리]\n"
-        # C+1 확정 문구 (2026-07-30, 실사진 55장 프롬프트 A/B/C+1 실측 — 카테고리_프롬프트_실험_보고서 참조).
-        # 바꾼 것: "가능한 한"(억지 유도) 제거, 신규 자격 규칙(주제 단위·브랜드 금지),
-        # 기존 표기 재사용 강제(A/A' 파편화 0 실측), 다주제 tie-break, few-shot.
-        # 문장 전체가 CATEGORY_POLICY 에서 렌더링된다 — 개편은 정책 dict 수정이 전부다.
-        + _category_prompt_section(candidate_names)
-        + tag_rule
-        + "[주요정보] 사용자에게 보여줄 핵심 정보를 '항목: 값' 형태 문자열로 담아라. "
-        "확인되지 않은 값은 넣지 마라(추측 금지).\n\n"
-        + schedule_rule
-        + language_rule
-        + "반드시 아래 JSON만 출력. 마크다운·설명 금지.\n"
+    # C+1 확정 문구 (2026-07-30, 실사진 55장 프롬프트 A/B/C+1 실측 — 카테고리_프롬프트_실험_보고서 참조).
+    # 바꾼 것: "가능한 한"(억지 유도) 제거, 신규 자격 규칙(주제 단위·브랜드 금지),
+    # 기존 표기 재사용 강제(A/A' 파편화 0 실측), 다주제 tie-break, few-shot.
+    # 문장 전체가 CATEGORY_POLICY 에서 렌더링된다 — 개편은 정책 dict 수정이 전부다.
+    cat_defs, cat_candidates, cat_rules = _category_prompt_section(
+        candidate_names, static_prefix=static)
+    # 융합 경로는 OCR 에 줄번호를 붙인다 — refined_lines 의 n 이 이 번호를 가리킨다.
+    # 모델이 줄을 세지 않고 읽게 해 병합(줄 단위 대체)을 결정적으로 만든다.
+    ocr_block = (
+        ("OCR:\n" + "\n".join(
+            f"{i+1}| {line}" for i, line in enumerate(ocr_text.split("\n"))) + "\n")
+        if image_bytes is not None else f"OCR: {ocr_text}\n"
+    )
+    schema = (
+        "반드시 아래 JSON만 출력. 마크다운·설명 금지.\n"
         + ('{"informative":true,"thumbnail_focus":0.5,'
            '"refined_lines":[{"n":1,"t":"..."}],"refined_full":null,'
            if image_bytes is not None else "{")
         + '"title":"...","summary":"...","tags":["..."],"categories":["..."],'
         '"key_information":["..."],"analysis_confidence":0.0,'
         '"schedule":{"startAt":null,"endAt":null}}\n\n'
-        # 융합 경로는 OCR 에 줄번호를 붙인다 — refined_lines 의 n 이 이 번호를 가리킨다.
-        # 모델이 줄을 세지 않고 읽게 해 병합(줄 단위 대체)을 결정적으로 만든다.
-        + (("OCR:\n" + "\n".join(
-                f"{i+1}| {line}" for i, line in enumerate(ocr_text.split("\n"))) + "\n")
-           if image_bytes is not None else f"OCR: {ocr_text}\n")
-        + ("" if image_bytes is not None
-           else f"이미지 분석: {image_analysis}")
     )
+    key_info_rule = (
+        "[주요정보] 사용자에게 보여줄 핵심 정보를 '항목: 값' 형태 문자열로 담아라. "
+        "확인되지 않은 값은 넣지 마라(추측 금지).\n\n"
+    )
+    analysis_block = ("" if image_bytes is not None
+                      else f"이미지 분석: {image_analysis}")
+    if static:
+        # 정적 → 가변. INPUT_LABEL 이 캐시 프리픽스의 끝이다 — 이 라벨보다 앞에
+        # 가변 값이 하나라도 들어가면 그 지점에서 캐시가 끊긴다.
+        prompt = (
+            header + "[카테고리]\n" + cat_defs + cat_rules
+            + tag_rule + key_info_rule + schedule_rule + language_rule + schema
+            + INPUT_LABEL + cat_candidates + tag_examples
+            + f"기준 시각: {ref_now}\n\n"
+            + ocr_block + analysis_block
+        )
+    else:
+        # 기존 배치 — 조각을 이 순서로 이으면 예전 프롬프트와 바이트 단위로 같다.
+        prompt = (
+            header + "[카테고리]\n" + cat_candidates + cat_rules
+            + tag_rule + key_info_rule + schedule_rule + language_rule + schema
+            + ocr_block + analysis_block
+        )
     parts: list[Any] = [prompt]
     if image_bytes is not None:
         parts.append(gemini_client.image_part(image_bytes))
@@ -1099,6 +1156,12 @@ async def _run_full_pipeline(
                     key_information=result["key_information"],
                     status="COMPLETED",
                     category_confidence=generated.get("categoryConfidence"),
+                    # 융합 호출이 만든 교정본을 여기서 영속화한다. 이게 없으면
+                    # 앱 직결 경로에서 교정 결과가 어디에도 도달하지 못한다 —
+                    # 폴링 result 는 아래에서 새로 조립되고, callback_result 는
+                    # run_app_analysis 가 반환값을 받지 않아 버려진다. 6-2 상세의
+                    # '추출된 텍스트'가 이 필드를 읽는다.
+                    refined_text=generated.get("ocrRefinedText"),
                 )
         except Exception as e:
             logger.warning("검색 색인 실패 imageId=%s: %s (분석 결과는 유지)",

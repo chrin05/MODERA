@@ -349,7 +349,10 @@ async def app_image_detail(image_id: int, user_id: CurrentUserId):
         favorite=found.get("favorite", False),
         title=found.get("title", ""),
         summary=found.get("summary", ""),
+        # refinedText 는 융합 호출이 이미지와 대조해 교정한 화면 텍스트다.
+        # 교정이 없었으면(비정보성·분석 전) null 이라 앱은 rawText 로 폴백한다.
         ocr=OcrInput(raw_text=found.get("raw_text", ""),
+                     refined_text=found.get("refined_text"),
                      confidence=found.get("ocr_confidence")),
         tags=_tag_refs(found.get("tags") or [], source="AGENT"),
         categories=_category_refs(found.get("category"),
