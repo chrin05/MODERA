@@ -1,0 +1,120 @@
+# auth2api(Claude OAuth 프록시) 검증용 세 번째 스택.
+#
+# Jenkins 배포(/home/ubuntu/app/AI, 프로젝트 'ai', ai-main:latest, :8000)와
+# feature/full-stage 스택(프로젝트 'ai-full', ai-main:full, :8001) 모두와 겹치지
+# 않는다 — 프로젝트명·이미지 태그·포트·OpenSearch 인덱스가 전부 다르므로 셋이
+# 동시에 떠 있어도 된다.
+#
+# 배포본과 다른 점은 LLM 경로 하나뿐이다: LLM_PROVIDER=claude 로 두고, Anthropic
+# 호출을 같은 스택 안의 auth2api 컨테이너로 보낸다. auth2api 는 ports 를 열지
+# 않으므로 이 스택의 ai-service 만 접근할 수 있다.
+#
+# ── 서버(i15d207) 절차 ────────────────────────────────────────────────────
+#  1. auth2api 준비 (1회)
+#       git clone https://github.com/AmazingAng/auth2api /home/ubuntu/app/auth2api
+#       cd /home/ubuntu/app/auth2api
+#       cp config.example.yaml config.yaml && chmod 600 config.yaml
+#       # config.yaml 에서 반드시 3줄을 고친다:
+#       #   host: '0.0.0.0'    ← 컨테이너 내부 바인딩. ports 를 안 열었으므로 외부 노출 아님
+#       #   auth-dir: '/data'  ← 기본값 '~/.auth2api' 는 컨테이너의 /root 로 풀려서
+#       #                        토큰이 볼륨 밖(컨테이너 레이어)에 저장된다
+#       #   api-keys: ["<openssl rand -hex 32>"]
+#       docker build -t auth2api:latest .
+#
+#  2. 소스·환경변수
+#       # 이 리포의 ai/ai_main 을 /home/ubuntu/app/AI-a2a-src/ai/ai_main 으로 rsync
+#       cd /home/ubuntu/app/AI-a2a-src/ai/ai_main
+#       sudo cp /home/ubuntu/app/AI/.env .env && sudo chown $USER .env && chmod 600 .env
+#       # .env 에 3줄 추가/수정:
+#       #   LLM_PROVIDER=claude
+#       #   MOCK_AI=false
+#       #   CLAUDE_API_KEY=<1번의 api-keys 값>
+#       # GEMINI_API_KEY·EMBEDDING_DIM=768 은 그대로 둔다 — 임베딩은 계속 Gemini 다.
+#
+#  3. OAuth 로그인 (1회, 대화형). `compose run` 으로 해야 아래 볼륨에 토큰이 남는다.
+#     ⚠️ 순서를 지킬 것 — 계정이 0개면 auth2api 는 "No accounts found" 를 찍고 즉시
+#        종료한다. restart: unless-stopped 때문에 로그인 전에 4번을 먼저 하면
+#        재시작 루프에 빠진다.
+#       docker compose -f docker-compose.auth2api.yml -p ai-a2a run --rm auth2api \
+#         node dist/index.js --config=/config/config.yaml --login --manual
+#     출력된 URL 을 내 PC 브라우저에서 승인 → localhost 리다이렉트가 실패하면
+#     주소창의 전체 URL 을 복사해 터미널에 붙여넣는다. 서버에 브라우저도,
+#     열린 콜백 포트(54545)도 필요 없다.
+#
+#  4. 기동·확인
+#       docker compose -f docker-compose.auth2api.yml -p ai-a2a up -d --build
+#       curl http://localhost:8002/health
+#
+#     계정이 붙었는지는 /admin/accounts 로 본다(API 키 필요 — /health 에는 안 나온다):
+#       KEY=$(grep -A1 '^api-keys:' /home/ubuntu/app/auth2api/config.yaml | tail -1 \
+#             | sed 's/[^"]*"\([^"]*\)".*/\1/')
+#       docker compose -f docker-compose.auth2api.yml -p ai-a2a exec -T auth2api \
+#         wget -qO- --header="Authorization: Bearer $KEY" http://127.0.0.1:8317/admin/accounts
+#
+#     실호출까지 확인(→ {'ok': True}):
+#       docker compose -f docker-compose.auth2api.yml -p ai-a2a exec -T ai-service-a2a \
+#         python -c "from app.llm import claude; print(claude.generate_json('claude-haiku-4-5', ['Return exactly {\"ok\":true}']))"
+#
+# nginx 라우팅(/ai-a2a/ → ai-service-a2a:8000)은 shared-web 네트워크로 닿는다.
+services:
+  ai-service-a2a:
+    build: .
+    # Jenkins 가 덮어쓰는 ai-main:latest, full 스택의 ai-main:full 과 겹치면 안 된다.
+    image: ai-main:a2a
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      # 배포 스택의 opensearch 컨테이너를 그대로 쓰고 인덱스만 분리한다.
+      - OPENSEARCH_HOST=opensearch
+      - OPENSEARCH_PORT=9200
+      # - OPENSEARCH_INDEX=screenshot_kb_a2a
+      # .env 의 CLAUDE_BASE_URL(호스트 기준 127.0.0.1:8317)을 컨테이너 기준으로
+      # 덮는다 — docker-compose.local.yml 이 S3_ENDPOINT 를 덮는 것과 같은 이유다.
+      # 여기서는 auth2api 가 같은 네트워크의 컨테이너라 루프백 함정이 없다.
+      - CLAUDE_BASE_URL=http://auth2api:8317
+    networks:
+      # default       : auth2api 와 통신. `networks:` 를 명시하면 compose 가
+      #                 default 를 자동으로 붙여주지 않으므로 직접 적어야 한다.
+      # ai_default    : Jenkins 스택(프로젝트 'ai')의 opensearch
+      # infra_default : MinIO
+      # shared-web    : nginx 가 ai-service-a2a:8000 으로 프록시할 수 있게
+      - default
+      - ai_default
+      - infra_default
+      - shared-web
+    depends_on:
+      - auth2api
+    ports:
+      # 8000 은 배포본, 8001 은 full 스택이 쓰고 있다.
+      - "8002:8000"
+
+  # Claude 구독 OAuth 를 Anthropic API 형태로 중계하는 프록시.
+  # https://github.com/AmazingAng/auth2api
+  auth2api:
+    image: auth2api:latest # 서버에서 미리 build 해 둔다(위 1번)
+    restart: unless-stopped
+    volumes:
+      # OAuth 토큰(claude-<email>.json, 0700)과 stats.jsonl 이 여기 남는다.
+      # named volume 이라 컨테이너 재생성·재배포에도 리프레시 결과가 살아남는다.
+      - auth2api-data:/data
+      # api-keys 를 미리 채워 두므로 첫 기동 시 자동 생성 쓰기는 일어나지 않는다.
+      # :ro 로 걸지 않는다 — 키가 빈 채로 뜨면 config.yaml 에 쓰려 하다 실패한다.
+      - /home/ubuntu/app/auth2api/config.yaml:/config/config.yaml
+    networks:
+      - default
+    # ⚠️ ports 매핑을 추가하지 말 것. 이 프록시는 개인 Claude 구독 자격증명을
+    #    그대로 대리하므로, 공개 호스트에 포트를 열면 API 키 하나로 계정 전체가
+    #    넘어간다. 같은 네트워크의 ai-service-a2a 만 접근하면 충분하다.
+    #    호스트에서 확인할 일이 있으면 `docker compose ... exec auth2api wget ...`.
+
+networks:
+  # default 는 이 프로젝트가 만든다(ai-a2a_default). 나머지는 외부 스택의 것.
+  ai_default:
+    external: true
+  infra_default:
+    external: true
+  shared-web:
+    external: true
+
+volumes:
+  auth2api-data:
