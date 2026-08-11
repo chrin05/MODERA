@@ -534,6 +534,34 @@ def _strip_query(query: str) -> str:
     return " ".join(kept) if kept else query
 
 
+def _query_variants(query: str) -> list[str]:
+    """스트립한 질의 + 표기 별칭 치환본. [0] 은 항상 원래(스트립된) 질의다.
+
+    "싸피" 로 쓴 질의는 제목·태그가 "SSAFY" 인 문서를 어휘로도 의미로도 못 잡는다
+    (실서버 실측 8/11: BM25 0건, 코사인 0.311 vs 무관문서 0.274 — 게이트를 낮춰도
+    정크가 같이 들어와 못 가른다). 그래서 질의를 한 벌 더 만들어 둘 다 던진다.
+    호출부는 이 목록을 dis_max 로 묶는다 — 한 질의에 두 표기를 합치면
+    minimum_should_match 의 분모만 늘어 양쪽 다 떨어진다.
+
+    치환은 대소문자 무시 부분일치이며 **뒤에 붙은 한글 꼬리를 함께 먹는다**
+    ("싸피랑" → "SSAFY", "싸피에서" → "SSAFY"). 별칭 대상은 명사라 바로 뒤의
+    한글은 조사다. 꼬리를 남기면 "SSAFY랑" 이 nori 에서 ssafy·랑 두 토큰이 되고
+    minimum_should_match 75% 가 1개로 내려가, '랑' 하나만 걸린 무관 문서가
+    통째로 딸려 온다(실측: 롤 전적 스크린샷이 "싸피" 검색에 등장).
+
+    별칭이 없거나 걸리지 않으면 항목 1개짜리 목록이라 기존과 동일하다.
+    """
+    base = _strip_query(query)
+    variants = [base]
+    for a, b in get_settings().search_query_aliases:
+        for src, dst in ((a, b), (b, a)):
+            swapped = re.sub(rf"{re.escape(src)}[가-힣]*", dst, base,
+                             flags=re.IGNORECASE)
+            if swapped != base and swapped not in variants:
+                variants.append(swapped)
+    return variants
+
+
 # 명세 8-1 scope: 검색 대상 필드를 좁힌다.
 _SCOPE_FIELDS = {
     "ALL": ["title^2", "summary", "tags", "raw_text"],
@@ -704,19 +732,24 @@ def _bm25_search(
     서버측 from/size 페이징이라 total 이 정확하고, _score 스케일도 그대로다.
     scope=OCR/TAG, 필드 정렬, 내부 엔드포인트, 모델 미로드가 모두 여기로 온다.
     """
-    # 문장형 질의의 무변별 토큰 제거(F4c). 모든 어휘 매칭 경로(직접 BM25·cascade
-    # 프로브·scope=OCR/TAG·내부 bm25 모드)가 같은 스트립을 거쳐 동작이 일관된다.
-    query = _strip_query(query)
+    # 문장형 질의의 무변별 토큰 제거(F4c) + 표기 별칭 치환. 모든 어휘 매칭 경로
+    # (직접 BM25·cascade 프로브·scope=OCR/TAG·내부 bm25 모드)가 같은 변환을 거쳐
+    # 동작이 일관된다.
+    def _mm(q: str) -> dict[str, Any]:
+        return {"multi_match": {
+            "query": q,
+            "fields": fields,
+            # 기본 OR 는 토큰 하나만 걸려도 매칭돼 "원"·"만" 같은 흔한 형태소로
+            # 과다매칭이 난다. 질의 토큰의 일정 비율 이상을 요구해 이를 막는다.
+            "minimum_should_match": settings.search_min_should_match,
+        }}
+
+    variants = _query_variants(query)
+    # 별칭이 안 걸리면 변형이 1개라 dis_max 를 씌우지 않는다 — 기존 질의 그대로.
+    matcher = (_mm(variants[0]) if len(variants) == 1
+               else {"dis_max": {"queries": [_mm(v) for v in variants]}})
     bool_query: dict[str, Any] = {
-        "must": [{
-            "multi_match": {
-                "query": query,
-                "fields": fields,
-                # 기본 OR 는 토큰 하나만 걸려도 매칭돼 "원"·"만" 같은 흔한 형태소로
-                # 과다매칭이 난다. 질의 토큰의 일정 비율 이상을 요구해 이를 막는다.
-                "minimum_should_match": settings.search_min_should_match,
-            },
-        }],
+        "must": [matcher],
         "filter": _search_filters(user_id, category, tag),
     }
 
@@ -763,11 +796,9 @@ def _bm25_pool_body(
     문서에 strict 를 요구한다. dis_max 는 두 가지가 같은 질의라 점수가 동일해
     (msm 은 필터일 뿐 점수에 불관여) 기존 BM25 점수 스케일이 유지된다.
     """
-    query = _strip_query(query)
-
-    def _mm(msm: str, name: str | None = None) -> dict[str, Any]:
+    def _mm(q: str, msm: str, name: str | None = None) -> dict[str, Any]:
         body: dict[str, Any] = {
-            "query": query,
+            "query": q,
             "fields": _SCOPE_FIELDS["ALL"],
             "minimum_should_match": msm,
         }
@@ -775,14 +806,20 @@ def _bm25_pool_body(
             body["_name"] = name
         return {"multi_match": body}
 
+    # 표기 별칭 변형도 같은 두 벌(strict·완화)로 넣는다. `_name` 은 겹쳐도 되며,
+    # 어느 변형이든 strict 로 걸리면 matched_queries 에 "strict" 가 실린다.
+    queries = [
+        mm
+        for v in _query_variants(query)
+        for mm in (_mm(v, settings.search_min_should_match, name="strict"),
+                   _mm(v, settings.search_hybrid_pool_msm))
+    ]
+
     return {
         "from": 0,
         "size": n,
         "query": {"bool": {
-            "must": [{"dis_max": {"queries": [
-                _mm(settings.search_min_should_match, name="strict"),
-                _mm(settings.search_hybrid_pool_msm),
-            ]}}],
+            "must": [{"dis_max": {"queries": queries}}],
             "filter": filters,
         }},
         # 동점 문서의 rank 를 결정적으로 만들기 위한 2차 정렬.
